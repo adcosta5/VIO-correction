@@ -1,0 +1,216 @@
+import os
+import sys
+import cv2
+import json
+import enum
+import argparse
+import numpy as np
+import pyzed.sl as sl
+import pathlib as Path
+import matplotlib.pyplot as plt
+
+sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+
+from utils import GT_reader, street_segmentation, quaternion_to_rotation_matrix, create_transformation_matrix, rotation_matrix_z
+from plot_utils import RealTimePlotter
+from fastSAM_utils import FastSAMutils
+from correction_utils import boundary_correction, point_correction, multipoint_correction
+
+def main(seq):
+    # Initialize FastSAM
+    fastsam = FastSAMutils()
+
+    # Get input parameters
+    svo_input_path = opt.input_svo_file
+    output_dir = opt.output_path_dir
+    plot = opt.plot
+    show_FastSAM = opt.show_FastSAM
+    correction_type = opt.correction_type
+
+    if not os.path.isdir(output_dir):
+        sys.stdout.write("Output directory doesn't exist. Check permission or create it.\n",
+                         output_dir, "\n")
+        exit()
+
+    # Create zed object
+    zed = sl.Camera()
+
+    # Specify SVO path parameter
+    input_type = sl.InputType()
+    init = sl.InitParameters(input_t=input_type)
+    init.set_from_svo_file(svo_input_path) 
+    init.svo_real_time_mode = False         # Don't convert in realtime
+    init.coordinate_units = sl.UNIT.METER
+    init.coordinate_system = sl.COORDINATE_SYSTEM.RIGHT_HANDED_Z_UP_X_FWD # Right-handed, z-up, x-forward
+    init.depth_mode = sl.DEPTH_MODE.NEURAL  # Better quality
+    init.enable_right_side_measure = False
+
+
+    # Open the SVO file 
+    err = zed.open(init)
+    if err != sl.ERROR_CODE.SUCCESS:
+        sys.stdout.write(repr(err))
+        zed.close()
+        exit()
+    
+    # Prepare single image containers
+    left_image = sl.Mat()
+    point_cloud = sl.Mat()
+
+    zed_pose = sl.Pose() # Visual-Inertial SLAM pose
+    py_transform = sl.Transform()  # Transform object for TrackingParameters object
+    tracking_parameters = sl.PositionalTrackingParameters(_init_pos=py_transform)
+    err = zed.enable_positional_tracking(tracking_parameters)
+    if (err != sl.ERROR_CODE.SUCCESS):
+            exit(-1)
+    
+    rt_param = sl.RuntimeParameters()
+
+
+    max_lat, min_lat, max_lon, min_lon, zone_number, initial_point, initial_angle, initial_point_latlon = GT_reader(seq)
+    
+    zone = "+proj=utm +zone=" + str(zone_number) + " +ellps=WGS84 +datum=WGS84 +units=m +no_defs"
+    edges,road_area,walkable_area_gdf,building_area,crossings_area,railway_area,green_area = street_segmentation(initial_point_latlon,zone,area=750)
+
+    if plot:
+        # Initialize real-time plotter
+        plotter = RealTimePlotter(
+            edges, road_area, building_area, crossings_area, 
+            railway_area, green_area, min_lat, min_lon, max_lat, max_lon
+        )
+
+        plt.pause(0.01)
+        plotter.start_animation()
+
+    sys.stdout.write("Reading SVO... Use Ctrl-C to interrupt.\n")
+    nb_frames = zed.get_svo_number_of_frames()
+    is_first_frame = True
+    counter = 0
+    
+    try: 
+        while True:
+            err = zed.grab(rt_param)
+            if err == sl.ERROR_CODE.SUCCESS:
+                svo_position = zed.get_svo_position()
+                
+                # Retrieve left image and point locud
+                zed.retrieve_image(left_image, sl.VIEW.LEFT)
+                zed.retrieve_measure(point_cloud, sl.MEASURE.XYZRGBA)
+
+                image_np = left_image.get_data()
+                point_prompt = (600,700)
+
+                if counter == 0:
+                    mask = fastsam.segment_with_point_prompt(image_np, point_prompt)
+                    
+                    # fastsam.left_right_point_extractor(mask, point_cloud)
+                    
+                    left_distance, right_distance = fastsam.left_right_point_extractor(mask, point_cloud)
+
+                    counter = counter + 1
+                elif counter == 4:
+                    counter = 0
+                else: counter = counter + 1
+
+                if show_FastSAM:
+                    # To visualize the mask:
+                    cv2.imshow("Segmentation Mask", mask * 255)
+                    if cv2.waitKey(10) & 0xFF == ord('q'):
+                        break
+
+                # Retrieve translation and orientation 
+                zed.get_position(zed_pose, sl.REFERENCE_FRAME.CAMERA)
+
+                translation = zed_pose.get_translation()
+                orientation = zed_pose.get_orientation()
+
+                if is_first_frame:
+
+                    first_point = (translation.get()[0] + initial_point[0],
+                                   translation.get()[1] + initial_point[1],
+                                   translation.get()[2])
+                    
+                    angle_rad = np.deg2rad(initial_angle)
+                    # angle_rad = 0
+                    R_matrix = rotation_matrix_z(angle_rad)
+                    # R_matrix = quaternion_to_rotation_matrix((orientation.get()[0],orientation.get()[1],orientation.get()[2],orientation.get()[3]))
+                    transf_matrix = create_transformation_matrix(first_point,R_matrix)
+
+                    is_first_frame = False  # Ensure this runs only once
+                
+                else:
+                    
+                    R_matrix = quaternion_to_rotation_matrix((orientation.get()[0],orientation.get()[1],orientation.get()[2],orientation.get()[3]))
+                    T_matrix = create_transformation_matrix((translation.get()[0],translation.get()[1],translation.get()[2]),R_matrix)
+                    transf_matrix = prev_transf @ T_matrix
+
+                print(f"Estimated trajectory: {translation.get()[0]}, {translation.get()[1]}")
+                print(f"Transformation Matrix: \n {transf_matrix}")
+
+                # if correction_type == "boundary":
+                #     boundary_correction()
+
+                # elif correction_type == "point":
+                #     point_correction()
+
+                # elif correction_type == "multipoint":
+                #     multipoint_correction()
+                    
+                # else: print(f"No correction is being executed")
+
+                prev_transf = transf_matrix
+
+                if plot:
+                        point_added = plotter.add_est_point(transf_matrix[0,3], transf_matrix[1,3])
+
+                        if point_added and len(plotter.est_x) % 5 == 0:
+                            plt.pause(0.001)  # Short pause to allow GUI updates
+
+                
+
+        
+            elif err == sl.ERROR_CODE.END_OF_SVOFILE_REACHED:
+                sys.stdout.write("\nSVO end has been reached. Exiting now.\n")
+                break
+
+    except KeyboardInterrupt:
+        sys.stdout.write("\nProcessing interrupted by user.\n")
+    finally:
+        zed.close()
+        if plot:
+            plotter.close()
+            plt.show()  # Keep plot open after processing
+
+    return 0
+
+
+if __name__ == "__main__":
+    
+    seq = "00"
+    input_svo_file = "./datasets/IRI_" + seq + ".svo2"
+    output_dir = "."
+    plot = False
+    show_FastSAM = True
+    correction_type = "boundary"
+
+    parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
+    parser.add_argument('--input_svo_file', type=str, default=input_svo_file, help='Path to the .svo file')
+    parser.add_argument('--output_path_dir', type = str, default = output_dir, help = 'Path to a directory, where .png will be written, if mode includes image sequence export')
+    parser.add_argument('--plot', type = bool, default = plot, help= "True for a plot with the trajectory")
+    parser.add_argument('--show_FastSAM', type = bool, default = show_FastSAM, help= "True to show FastSAM results")
+    parser.add_argument('--correction_type', type = str, default = correction_type, help = "Select the type of correction: boundary, point, multipoint")
+    opt = parser.parse_args()
+
+    if not opt.input_svo_file.endswith(".svo") and not opt.input_svo_file.endswith(".svo2"): 
+        print("--input_svo_file parameter should be a .svo file but is not : ",opt.input_svo_file,"Exit program.")
+        exit()
+    if not os.path.isfile(opt.input_svo_file):
+        print("--input_svo_file parameter should be an existing file but is not : ",opt.input_svo_file,"Exit program.")
+        exit()
+    if len(opt.output_path_dir)==0 :
+        print("In mode ",opt.mode,", output_path_dir parameter needs to be specified.")
+        exit()
+    if not os.path.isdir(opt.output_path_dir):
+        print("--output_path_dir parameter should be an existing folder but is not : ",opt.output_path_dir,"Exit program.")
+        exit()
+    main(seq)
