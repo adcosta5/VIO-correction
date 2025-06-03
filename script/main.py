@@ -9,12 +9,13 @@ import pyzed.sl as sl
 import pathlib as Path
 import matplotlib.pyplot as plt
 
-sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+from collections import deque
+from shapely.geometry import Polygon
 
-from utils import GT_reader, street_segmentation, quaternion_to_rotation_matrix, create_transformation_matrix, rotation_matrix_z
 from plot_utils import RealTimePlotter
 from fastSAM_utils import FastSAMutils
-from correction_utils import boundary_correction, point_correction, multipoint_correction
+from correction_utils import boundary_correction, point_correction, multipoint_correction, merge_geoseries_obstacles
+from utils import GT_reader, street_segmentation, quaternion_to_rotation_matrix, create_transformation_matrix, rotation_matrix_z
 
 def main(seq):
     # Initialize FastSAM
@@ -71,6 +72,16 @@ def main(seq):
     
     zone = "+proj=utm +zone=" + str(zone_number) + " +ellps=WGS84 +datum=WGS84 +units=m +no_defs"
     edges,road_area,walkable_area_gdf,building_area,crossings_area,railway_area,green_area = street_segmentation(initial_point_latlon,zone,area=750)
+    
+    merged_obstacles = merge_geoseries_obstacles(road_area, building_area, railway_area,green_area)
+
+
+    #Define fov_box parameters for the point and multipoint correction
+    view_dist = 20 # 20 meters viewing distance
+
+    # Define the box corners relative to the point
+    box_corners = np.array([[-0.5, -10.0], [-0.5, 10.0], [11.5, 10], [11.5, -10.0]]) # Box 20 by 20m 
+
 
     if plot:
         # Initialize real-time plotter
@@ -86,6 +97,10 @@ def main(seq):
     nb_frames = zed.get_svo_number_of_frames()
     is_first_frame = True
     counter = 0
+
+    # Initialize translation buffer
+    point_buffer = deque(maxlen=5)
+    smoothed_translation = None
     
     try: 
         while True:
@@ -147,27 +162,62 @@ def main(seq):
                 print(f"Estimated trajectory: {translation.get()[0]}, {translation.get()[1]}")
                 print(f"Transformation Matrix: \n {transf_matrix}")
 
-                # if correction_type == "boundary":
-                #     boundary_correction()
+                estimated_odom = (transf_matrix[0,3], transf_matrix[1,3])
+                point_buffer.append(estimated_odom)
 
-                # elif correction_type == "point":
-                #     point_correction()
-
-                # elif correction_type == "multipoint":
-                #     multipoint_correction()
+                if len(point_buffer) >= 2:
+                    if len(point_buffer) == 5:
+                        past_x, past_y = point_buffer[0]  # 5-frame window
+                    else:
+                        past_x, past_y = point_buffer[0]  # First available point
                     
-                # else: print(f"No correction is being executed")
+                    dx = estimated_odom[0] - past_x
+                    dy = estimated_odom[1] - past_y
+                    line_angle = np.arctan2(dy, dx)
+                else:
+                    line_angle = 0
 
-                prev_transf = transf_matrix
+                # Rotate the box to adjust the orientation of the trajectory
+                rotation_matrix_line = np.array([[np.cos(line_angle), -np.sin(line_angle)],
+                                [np.sin(line_angle), np.cos(line_angle)]])
+                rotated_corners = np.dot(box_corners, rotation_matrix_line.T)
 
-                if plot:
+                rotated_box_coords = rotated_corners + np.array([estimated_odom[0], estimated_odom[1]])
+                fov_box = Polygon(rotated_box_coords)
+
+                if correction_type == "boundary":
+                    boundary_correction()
+
+                elif correction_type == "point":
+                    intersecting_objects = point_correction(estimated_odom, view_dist, merged_obstacles, fov_box)
+
+                    if plot:
+                        plotter.last_fov_box = fov_box
+                        plotter.last_intersecting_points = intersecting_objects
+
                         point_added = plotter.add_est_point(transf_matrix[0,3], transf_matrix[1,3])
 
                         if point_added and len(plotter.est_x) % 5 == 0:
                             plt.pause(0.001)  # Short pause to allow GUI updates
 
-                
+                elif correction_type == "multipoint":
+                    multipoint_correction()
+                    
+                else: 
 
+                    if is_first_frame:
+                        print(f"No correction is being executed")
+
+                    if plot:
+                        point_added = plotter.add_est_point(transf_matrix[0,3], transf_matrix[1,3])
+
+                        if point_added and len(plotter.est_x) % 5 == 0:
+                            plt.pause(0.001)  # Short pause to allow GUI updates
+                        
+
+                prev_transf = transf_matrix
+
+    
         
             elif err == sl.ERROR_CODE.END_OF_SVOFILE_REACHED:
                 sys.stdout.write("\nSVO end has been reached. Exiting now.\n")
@@ -189,9 +239,9 @@ if __name__ == "__main__":
     seq = "00"
     input_svo_file = "./datasets/IRI_" + seq + ".svo2"
     output_dir = "."
-    plot = False
-    show_FastSAM = True
-    correction_type = "boundary"
+    plot = True
+    show_FastSAM = False
+    correction_type = "point"
 
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('--input_svo_file', type=str, default=input_svo_file, help='Path to the .svo file')

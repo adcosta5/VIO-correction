@@ -28,6 +28,11 @@ class RealTimePlotter:
         self.downsample_factor = 5  # Plot every 5th point
         self.counter = 0
 
+        # Add temporary plot elements
+        self.fov_patch = None
+        self.intersection_points = None
+        self.current_frame_count = 0
+
     def setup_background(self, edges, roads, buildings, crossings, railway, green):
         """Plot static map elements"""
         green.plot(ax=self.ax, color="palegreen", alpha=0.6)
@@ -49,15 +54,55 @@ class RealTimePlotter:
     def update_plot(self, frame):
         """Animation update function"""
         if self.is_running:
-            self.line_est.set_data(self.est_x, self.est_y)
-            self.line_corr.set_data(self.corr_x, self.corr_y)
-
-            # Auto-scale if needed (optional)
+            self.current_frame_count += 1
+            elements = [self.line_est, self.line_corr]
+            
+            # Only update temporary elements every 5 frames
+            if self.current_frame_count % 5 == 0 and hasattr(self, 'last_fov_box'):
+                temp_elements = self.update_temporary_elements(
+                    self.last_fov_box,
+                    self.last_intersecting_points
+                )
+                elements.extend(temp_elements)
+            
+            # Auto-scale if needed
             if len(self.est_x) > 0:
                 self.ax.relim()
                 self.ax.autoscale_view(scalex=False, scaley=False)
                 
-        return self.line_est, self.line_corr
+        return elements
+
+    def update_temporary_elements(self, fov_box=None, intersecting_points=None):
+        """Update temporary visualization elements"""
+        # Clear previous elements
+        if self.fov_patch:
+            self.fov_patch.remove()
+        if self.intersection_points:
+            self.intersection_points.remove()
+        
+        # Plot new elements if provided
+        if fov_box is not None:
+            self.fov_patch = plt.Polygon(
+                list(fov_box.exterior.coords),
+                closed=True,
+                fill=False,
+                color='lightblue',
+                linewidth=1,
+                alpha=0.5
+            )
+            self.ax.add_patch(self.fov_patch)
+        
+        if intersecting_points is not None and len(intersecting_points) > 0:
+            x, y = zip(*[(p.x, p.y) for p in intersecting_points])
+            self.intersection_points, = self.ax.plot(
+                x, y,
+                'ro',  # Red circles
+                markersize=8,
+                alpha=0.7,
+                label='Intersections'
+            )
+        
+        return self.line_est, self.line_corr, self.fov_patch, self.intersection_points
 
     def start_animation(self):
         """Start the real-time animation"""

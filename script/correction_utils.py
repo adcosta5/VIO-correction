@@ -9,123 +9,82 @@ import random
 import math
 
 
+def merge_geoseries_obstacles(*geoseries_list):
+    """Merge multiple GeoSeries into a single obstacles collection"""
+    all_geometries = []
+    
+    for geoseries in geoseries_list:
+        # Extract valid geometries from each GeoSeries
+        valid_geoms = [geom for geom in geoseries.geometry if not geom.is_empty]
+        all_geometries.extend(valid_geoms)
+    
+    # Combine all geometries
+    return unary_union(all_geometries) if all_geometries else Polygon()
+
+
 def boundary_correction():
 
 
     return 0
 
-# Create spatial indices
-def create_index(geoseries):
-    idx = index.Index()
-    for i, geom in enumerate(geoseries.geometry):
-        idx.insert(i, geom.bounds)
-    return idx
 
-def point_correction(point, roads, buildings, railways, grass):
 
-    # Convert points input to a Shaeply geometry
-    point = Point(point)
+def cartographic_point_extractor(point, max_distance, obstacles_geometry, fov_box, angles):
 
-    road_idx = create_index(roads)
-    building_idx = create_index(buildings)
-    railway_idx = create_index(railway)
-    grass_idx = create_index(grass)
-
+    results = []
+    point = Point(point[0], point[1])
+    x,y = point.x, point.y
     
+    for angle in angles:
+        # Create line using trigonometry
+        end_x = x + max_distance * math.cos(math.radians(angle))
+        end_y = y + max_distance * math.sin(math.radians(angle))
+        line = LineString([(x, y), (end_x, end_y)])
+        
+        # Find intersections with both obstacles and box fov_boxboundary
+        intersection = line.intersection(obstacles_geometry)
+        # Check if intersection is inside the fov_box
+        if intersection.is_empty:
+            continue
+        if intersection.geom_type == 'Point':
+            if not fov_box.contains(intersection):
+                continue
+        else:
+            # For MultiPoint, LineString, etc., check if any part is inside the box
+            if not intersection.intersects(fov_box):
+                continue
 
-    return 0
+        # Find closest intersection point
+        if intersection.geom_type == 'Point':
+            closest = (intersection.x, intersection.y)
+        else:
+            # Extract all points from intersection
+            points = []
+            if hasattr(intersection, 'geoms'):
+                for geom in intersection.geoms:
+                    if geom.geom_type == 'Point':
+                        points.append((geom.x, geom.y))
+                    else:
+                        points.extend(geom.coords)
+            else:
+                points.extend(intersection.coords)
+            
+            closest = min(points, key=lambda p: Point(p).distance(point))
+    
+        results.append(LineString([(x, y), closest]))
+        results[-1] = closest
+
+    return results
+
+def point_correction(point, max_distance, obstacles_geometry, fov_box, angles=(90,-90)):
+    
+    intersecting_objects = cartographic_point_extractor(point, max_distance, obstacles_geometry, fov_box, angles)
+    print(f"Intersecting objects: {intersecting_objects}")
+
+
+
+    return intersecting_objects
 
 def multipoint_correction():
 
     return 0
-
-def calculate_distances_with_index(points, roads_gseries, buildings_gseries, railway_gseries):
-    """
-    Calculate perpendicular distances from points to nearest road/building features.
-    
-    Args:
-        points: Can be either:
-            - GeoDataFrame with point geometries
-            - NumPy array of shape (n, 2) with (x,y) coordinates
-            - List of shapely Point objects
-        roads_gseries: GeoSeries containing road geometries
-        buildings_gseries: GeoSeries containing building geometries
-    
-    Returns:
-        Tuple of (results_df, nearest_points_gdf)
-    """
-    # Convert points input to consistent format
-    if isinstance(points, np.ndarray):
-        # Convert numpy array to GeoDataFrame
-        geometry = [Point(xy) for xy in points]
-        points_gdf = gpd.GeoDataFrame(geometry=geometry, crs=roads_gseries.crs)
-    elif not hasattr(points, 'geometry'):  # Handle other non-geodataframe inputs
-        points_gdf = gpd.GeoDataFrame(geometry=points, crs=roads_gseries.crs)
-    else:
-        points_gdf = points
-    
-    # Create spatial indices
-    def create_index(geoseries):
-        idx = index.Index()
-        for i, geom in enumerate(geoseries.geometry):
-            idx.insert(i, geom.bounds)
-        return idx
-    
-    road_idx = create_index(roads_gseries)
-    building_idx = create_index(buildings_gseries)
-    railway_idx = create_index(railway_gseries)
-    
-    road_distances = []
-    building_distances = []
-    railway_distances = []
-    nearest_road_points = []
-    nearest_building_points = []
-    nearest_railway_points = []
-    
-    for point in points_gdf.geometry:
-
-        ## NEAREST ROAD POINTS USING SHAPELY DISTANCE
-        #############################################################################################
-        # Find nearest road
-        road_candidates = list(road_idx.nearest(point.bounds, num_results=5))
-        nearest_road = min(
-            (nearest_points(point, roads_gseries.geometry.iloc[c])[1] for c in road_candidates),
-            key=lambda p: point.distance(p)
-        )
-        road_distances.append(point.distance(nearest_road))
-        nearest_road_points.append(nearest_road)
-
-        ############################################################################################
-        
-        # Find nearest building
-        building_candidates = list(building_idx.nearest(point.bounds, num_results=5))
-        nearest_building = min(
-            (nearest_points(point, buildings_gseries.geometry.iloc[c])[1] for c in building_candidates),
-            key=lambda p: point.distance(p)
-        )
-        building_distances.append(point.distance(nearest_building))
-        nearest_building_points.append(nearest_building)
-
-        #Find nearest railway
-        railway_candidates = list(railway_idx.nearest(point.bounds, num_results=5))
-        nearest_railway = min(
-            (nearest_points(point, railway_gseries.geometry.iloc[c])[1] for c in railway_candidates),
-            key=lambda p: point.distance(p)
-        )
-        railway_distances.append(point.distance(nearest_railway))
-        nearest_railway_points.append(nearest_railway)
-    
-    # Create results DataFrame
-    results_df = points_gdf.copy()
-    results_df['distance_to_road'] = road_distances
-    results_df['distance_to_building'] = building_distances
-    results_df['distance_to_railway'] = railway_distances
-    
-    nearest_data = {
-        'geometry': nearest_road_points + nearest_building_points + nearest_railway_points,
-        'type': ['road']*len(points_gdf) + ['building']*len(points_gdf) + ['railway']*len(points_gdf),
-        'original_point_idx': list(range(len(points_gdf))) * 3
-    }
-    nearest_points_gdf = gpd.GeoDataFrame(nearest_data, crs=points_gdf.crs)
-    
-    return results_df, nearest_points_gdf
