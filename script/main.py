@@ -124,9 +124,11 @@ def main(seq):
                 image_np = left_image.get_data()
                 point_prompt = (600,700)
 
-                if svo_position % 5 == 0: # Perform image segmentation every 5 frames
-                    mask = fastsam.segment_with_point_prompt(image_np, point_prompt)
-                    left_distance, right_distance = fastsam.left_right_point_extractor(mask, point_cloud)
+                if correction_type != "boundary":
+                    if svo_position % 5 == 0: # Perform image segmentation every 5 frames
+                        mask = fastsam.segment_with_point_prompt(image_np, point_prompt)
+                        left_distance, right_distance = fastsam.left_right_point_extractor(mask, point_cloud)
+
 
                 if show_FastSAM:
                     # To visualize the mask:
@@ -152,6 +154,7 @@ def main(seq):
                     R_matrix = rotation_matrix_z(angle_rad)
                     # R_matrix = quaternion_to_rotation_matrix((orientation.get()[0],orientation.get()[1],orientation.get()[2],orientation.get()[3]))
                     transf_matrix = create_transformation_matrix(first_point,R_matrix)
+                    # corrected_transf_matrix = transf_matrix
 
                     is_first_frame = False  # Ensure this runs only once
                 
@@ -160,12 +163,14 @@ def main(seq):
                     R_matrix = quaternion_to_rotation_matrix((orientation.get()[0],orientation.get()[1],orientation.get()[2],orientation.get()[3]))
                     T_matrix = create_transformation_matrix((translation.get()[0],translation.get()[1],translation.get()[2]),R_matrix)
                     transf_matrix = prev_transf @ T_matrix
+                    # corrected_transf_matrix = prev_corrected_transf @ T_matrix
 
                 # print(f"Estimated trajectory: {translation.get()[0]}, {translation.get()[1]}") # Debug
                 # print(f"Transformation Matrix: \n {transf_matrix}") # Debug
+                # print(f"Corrected Transformation Matrix: \n {corrected_transf_matrix}")
                 
-
                 corrected_odom = (transf_matrix[0,3], transf_matrix[1,3])
+                # corrected_odom = (corrected_transf_matrix[0,3], corrected_transf_matrix[1,3])
                 print(f"Estimated point: {corrected_odom}")
                 point_buffer.append(corrected_odom)
 
@@ -190,21 +195,33 @@ def main(seq):
                 fov_box = Polygon(rotated_box_coords)
 
                 if correction_type == "boundary":
-                    boundary_correction()
-
-                elif correction_type == "point":
-                    intersecting_objects, corrected_point = point_correction(corrected_odom, view_dist, merged_obstacles, fov_box, line_angle,left_distance,right_distance)
-
+                    adjusted_point = boundary_correction(corrected_odom, merged_obstacles)
+                    print(f"Adjusted point: {adjusted_point}")
+                    
                     if plot:
-
                         point_added = plotter.add_est_point(transf_matrix[0,3], transf_matrix[1,3])
-                        corrected_point_added = plotter.add_corr_point(corrected_odom[0], corrected_odom[1])
-
-                        if hasattr(fov_box, 'exterior'):  # Ensure it's a valid Polygon
-                            plotter.add_temporary_elements(fov_box, intersecting_objects)
+                        corrected_point_added = plotter.add_corr_point(adjusted_point[0], adjusted_point[1])
 
                         if svo_position % 5 == 0: # Update every 5 frames
                             plt.pause(0.001) # Short pause to allow GUI updates
+
+
+                elif correction_type == "point":
+                    if svo_position > 50:
+                        intersecting_objects, corrected_point = point_correction(corrected_odom, view_dist, merged_obstacles, fov_box, line_angle,left_distance,right_distance)
+
+                        # corrected_transf_matrix[0,3] = corrected_point[0]
+                        # corrected_transf_matrix[1,3] = corrected_point[1]
+
+                        if plot:
+                                point_added = plotter.add_est_point(transf_matrix[0,3], transf_matrix[1,3])
+                                corrected_point_added = plotter.add_corr_point(corrected_point[0], corrected_point[1])
+
+                                if hasattr(fov_box, 'exterior'):  # Ensure it's a valid Polygon
+                                    plotter.add_temporary_elements(fov_box, intersecting_objects)
+
+                                if svo_position % 5 == 0: # Update every 5 frames
+                                    plt.pause(0.001) # Short pause to allow GUI updates
 
                 elif correction_type == "multipoint":
                     multipoint_correction()
@@ -222,7 +239,7 @@ def main(seq):
                         
 
                 prev_transf = transf_matrix
-
+                # prev_corrected_transf = corrected_transf_matrix
     
         
             elif err == sl.ERROR_CODE.END_OF_SVOFILE_REACHED:

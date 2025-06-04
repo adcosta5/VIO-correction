@@ -1,8 +1,6 @@
 import geopandas as gpd
 import numpy as np
 from shapely.geometry import LineString, Point, Polygon, box
-from shapely.strtree import STRtree
-from shapely.affinity import rotate
 from shapely.ops import nearest_points, unary_union
 import random
 
@@ -21,9 +19,29 @@ def merge_geoseries_obstacles(*geoseries_list):
 
 
 def boundary_correction(point, obstacles_geometry):
+    
+    point = Point(point[0],point[1])
+    
+    from shapely.geometry import Point, GeometryCollection
+from shapely.ops import nearest_points
 
-
-    return 0
+def boundary_correction(point, obstacles_geometry):
+    point = Point(point[0], point[1])
+    
+    # Check if point is outside any geometry in the collection
+    is_outside = any(geom.contains(point) for geom in obstacles_geometry.geoms)
+    
+    if is_outside:
+        # Find the nearest geometry in the collection
+        nearest_geom = min(obstacles_geometry.geoms, key=lambda geom: geom.distance(point))
+        
+        # Get the nearest point on the nearest geometry
+        adjusted_point = nearest_points(nearest_geom, point)[0]
+        
+        return (adjusted_point.x, adjusted_point.y)
+    
+    # If not outside, return original point
+    return (point.x, point.y)
 
 
 def cartographic_point_extractor(point, max_distance, obstacles_geometry, fov_box, line_angle, angles):
@@ -96,17 +114,26 @@ def point_correction(point, max_distance, obstacles_geometry, fov_box, line_angl
 
         print(f"Correction: {right_correction}, {left_correction}\n") # Debug
 
-        corrected_point = (point[0] + min(left_correction, right_correction) * np.cos(line_angle), point[1] + min(left_correction, right_correction) * np.sin(line_angle))
+        correction = min(left_correction, right_correction)
 
-    else:
+    elif len(intersecting_objects) == 1:
         dist = np.linalg.norm(np.array(intersecting_objects) - np.array(point))
         min_dist_ZED = min(
             d for d in [left_distance, right_distance] if d is not None
             ) if any(d is not None for d in [left_distance, right_distance]) else None
         
         correction = dist - (min_dist_ZED or dist)
-        corrected_point = (point[0] + correction * np.cos(line_angle), point[1] + correction * np.sin(line_angle))
+        
 
+    else: correction = 0
+
+    rot_matrix = np.array([
+        [np.cos(line_angle), np.sin(line_angle)],
+        [-np.sin(line_angle), np.cos(line_angle)]
+    ])
+    rotated_point = rot_matrix @ np.array([correction,0]).T
+    corrected_point = (point[0] + rotated_point[0], point[1] + rotated_point[1])
+    
     print(f"Corrected_point: {corrected_point}") # Debug
     return intersecting_objects, corrected_point
 

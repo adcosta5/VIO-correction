@@ -33,6 +33,8 @@ class RealTimePlotter:
         self.fov_patch = None
         self.intersection_points = None
         self.current_frame_count = 0
+        self._artists = []  # Track all managed artists
+        self._init_artists()
 
     def setup_background(self, edges, roads, buildings, crossings, railway, green):
         """Plot static map elements"""
@@ -54,52 +56,61 @@ class RealTimePlotter:
 
     def update_plot(self, frame):
         """Animation update function"""
-        artists = []
+        active_artists = []
     
-        if self.is_running:
-            # Update trajectory lines
+        # Update permanent artists
+        if len(self.est_x) > 0:
             self.line_est.set_data(self.est_x, self.est_y)
+            active_artists.append(self.line_est)
+        
+        if len(self.corr_x) > 0:
             self.line_corr.set_data(self.corr_x, self.corr_y)
-            artists.extend([self.line_est, self.line_corr])
-            
-            # Add temporary elements if they exist
-            if hasattr(self, 'fov_patch'):
-                artists.append(self.fov_patch)
-            if hasattr(self, 'intersection_points'):
-                artists.append(self.intersection_points)
-            
-            # Auto-scale if needed
-            if len(self.est_x) > 0:
-                self.ax.relim()
-                self.ax.autoscale_view(scalex=False, scaley=False)
-    
-        # print(f"Returning {len(artists)} artists")  # Debug
-        return artists
+            active_artists.append(self.line_corr)
+        
+        # Handle temporary elements
+        if hasattr(self, 'fov_patch') and self.fov_patch:
+            active_artists.append(self.fov_patch)
+        if hasattr(self, 'intersection_points') and self.intersection_points:
+            active_artists.append(self.intersection_points)
+        
+        # Verify all artists before return
+        valid_artists = []
+        for artist in active_artists:
+            if hasattr(artist, 'axes') and artist.axes is not None:
+                valid_artists.append(artist)
+            else:
+                print(f"Warning: Discarding invalid artist {artist}")
+        
+        return valid_artists
 
     def add_temporary_elements(self, fov_box, intersections):
         """Clear and redraw temporary elements"""
         # Clear old elements
-        for element in getattr(self, 'temp_elements', []):
+        for artist in [a for a in [self.fov_patch, self.intersection_points] if a]:
             try:
-                element.remove()
+                artist.remove()
             except:
                 pass
-                
-        # Create new elements
-        self.fov_patch = plt.Polygon(
-            list(fov_box.exterior.coords),
-            closed=True, fill=False, color='red', alpha=0.5
-        )
-        self.ax.add_patch(self.fov_patch)
         
+        # Create new FOV patch
+        if fov_box and hasattr(fov_box, 'exterior'):
+            self.fov_patch = plt.Polygon(
+                list(fov_box.exterior.coords),
+                closed=True, fill=False, color='red', alpha=0.5
+            )
+            self.ax.add_patch(self.fov_patch)
+        
+        # Create intersection points
         if intersections:
             ix, iy = zip(*[(p[0], p[1]) for p in intersections])
             self.intersection_points, = self.ax.plot(
-                ix, iy, 'ro', markersize=2, alpha=0.7
+                ix, iy, 'ro', markersize=8, alpha=0.7
             )
         
-        self.temp_elements = [self.fov_patch, self.intersection_points]
-        # print(f"Added {len(intersections)} intersection points") # Debug
+        # Verify new artists
+        for artist in [self.fov_patch, self.intersection_points]:
+            if artist and not hasattr(artist, 'axes'):
+                print(f"Warning: Failed to create proper artist for {artist}")
 
     def start_animation(self):
         """Start the real-time animation"""
@@ -111,9 +122,15 @@ class RealTimePlotter:
             interval=100,
             blit=True,
             cache_frame_data=False,
-            init_func=lambda: [self.line_est, self.line_corr]  # Initial artists
+            init_func=self._init_draw  # Use dedicated init
         )
         plt.show(block=False)
+    
+    def _init_draw(self):
+        """Initial draw for blitting"""
+        for artist in self._artists:
+            artist.set_visible(True)
+        return self._artists
 
     def add_est_point(self, x, y):
         """Add new point with downsampling"""
@@ -133,6 +150,28 @@ class RealTimePlotter:
             self.corr_y.append(y)
             return True  # Point was added
         return False  # Point was skipped
+
+    def _init_artists(self):
+        """Initialize all artists and ensure they have axes"""
+        # Clear existing artists
+        for artist in self._artists:
+            try:
+                artist.remove()
+            except:
+                pass
+        
+        # Create fresh artists
+        self.line_est, = self.ax.plot([], [], 'forestgreen', label='Estimated', lw=2)
+        self.line_corr, = self.ax.plot([], [], 'dodgerblue', label='Corrected', lw=2)
+        self.fov_patch = None
+        self.intersection_points = None
+        
+        # Register permanent artists
+        self._artists = [self.line_est, self.line_corr]
+        
+        # Verify artists
+        for artist in self._artists:
+            assert hasattr(artist, 'axes'), f"Artist {artist} has no axes"
 
     def close(self):
         """Clean up"""
