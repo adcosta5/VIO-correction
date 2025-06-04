@@ -12,7 +12,7 @@ class RealTimePlotter:
         
         # Initialize trajectory lines
         self.line_est, = self.ax.plot([], [], 'forestgreen', label='Estimated Trajectory', lw=2, visible=True)
-        self.line_corr, = self.ax.plot([], [], 'dodgerblue', label='Corrected Trajectory', lw=2)
+        self.line_corr, = self.ax.plot([], [], 'dodgerblue', label='Corrected Trajectory', lw=2, visible=True)
         
         # Data storage
         self.est_x = []
@@ -25,7 +25,7 @@ class RealTimePlotter:
         self.is_running = False
 
         # Downsampler Factor
-        self.downsample_factor = 1  # Plot every 5th point
+        self.downsample_factor = 5  # Plot every 5th point
         self.counter = 0
 
         # Add temporary plot elements
@@ -126,9 +126,13 @@ class RealTimePlotter:
         
 
     def add_corr_point(self, x, y):
-        """Add new corrected trajectory point"""
-        self.corr_x.append(x)
-        self.corr_y.append(y)
+        """Add new corrected point with downsampling"""
+        self.counter += 1
+        if self.counter % self.downsample_factor == 0:
+            self.corr_x.append(x)
+            self.corr_y.append(y)
+            return True  # Point was added
+        return False  # Point was skipped
 
     def close(self):
         """Clean up"""

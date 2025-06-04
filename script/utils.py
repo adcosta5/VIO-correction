@@ -211,6 +211,7 @@ def street_segmentation(initial_point,zone,area=750):
     return (edges,road_area,walkable_area_gdf,building_area,crossings_area,railway_area,green_area)
 
 def quaternion_to_rotation_matrix(q):
+    """Computess the rotation matrix based on the input quaternion."""
     x, y, z, w = q
     xx, yy, zz = x*x, y*y, z*z
     xy, xz, yz = x*y, x*z, y*z
@@ -225,6 +226,7 @@ def quaternion_to_rotation_matrix(q):
 
 
 def rotation_matrix_z(theta):
+    """ Computes a rotation matrix around the z axis.""" 
     rot_z = np.array([
         [np.cos(theta), -np.sin(theta), 0],
         [np.sin(theta), np.cos(theta),  0],
@@ -235,6 +237,7 @@ def rotation_matrix_z(theta):
 
 # Create 4x4 transformation matrix
 def create_transformation_matrix(translation, rotation_matrix):
+    """Creates a transformation matrix 4x4 based on the translation matrix 1x3 and rotation matrix 3x3"""
     transformation = np.eye(4)
     transformation[:3, :3] = rotation_matrix
     transformation[:3, 3] = translation

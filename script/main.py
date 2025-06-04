@@ -161,11 +161,13 @@ def main(seq):
                     T_matrix = create_transformation_matrix((translation.get()[0],translation.get()[1],translation.get()[2]),R_matrix)
                     transf_matrix = prev_transf @ T_matrix
 
-                print(f"Estimated trajectory: {translation.get()[0]}, {translation.get()[1]}") # Debug
-                print(f"Transformation Matrix: \n {transf_matrix}") # Debug
+                # print(f"Estimated trajectory: {translation.get()[0]}, {translation.get()[1]}") # Debug
+                # print(f"Transformation Matrix: \n {transf_matrix}") # Debug
+                
 
-                estimated_odom = (transf_matrix[0,3], transf_matrix[1,3])
-                point_buffer.append(estimated_odom)
+                corrected_odom = (transf_matrix[0,3], transf_matrix[1,3])
+                print(f"Estimated point: {corrected_odom}")
+                point_buffer.append(corrected_odom)
 
                 if len(point_buffer) >= 2:
                     if len(point_buffer) == 5:
@@ -173,8 +175,8 @@ def main(seq):
                     else:
                         past_x, past_y = point_buffer[0]  # First available point
                     
-                    dx = estimated_odom[0] - past_x
-                    dy = estimated_odom[1] - past_y
+                    dx = corrected_odom[0] - past_x
+                    dy = corrected_odom[1] - past_y
                     line_angle = np.arctan2(dy, dx)
                 else:
                     line_angle = 0
@@ -184,18 +186,19 @@ def main(seq):
                                 [np.sin(line_angle), np.cos(line_angle)]])
                 rotated_corners = np.dot(box_corners, rotation_matrix_line.T)
 
-                rotated_box_coords = rotated_corners + np.array([estimated_odom[0], estimated_odom[1]])
+                rotated_box_coords = rotated_corners + np.array([corrected_odom[0], corrected_odom[1]])
                 fov_box = Polygon(rotated_box_coords)
 
                 if correction_type == "boundary":
                     boundary_correction()
 
                 elif correction_type == "point":
-                    intersecting_objects = point_correction(estimated_odom, view_dist, merged_obstacles, fov_box)
+                    intersecting_objects, corrected_point = point_correction(corrected_odom, view_dist, merged_obstacles, fov_box, line_angle,left_distance,right_distance)
 
                     if plot:
 
                         point_added = plotter.add_est_point(transf_matrix[0,3], transf_matrix[1,3])
+                        corrected_point_added = plotter.add_corr_point(corrected_odom[0], corrected_odom[1])
 
                         if hasattr(fov_box, 'exterior'):  # Ensure it's a valid Polygon
                             plotter.add_temporary_elements(fov_box, intersecting_objects)
