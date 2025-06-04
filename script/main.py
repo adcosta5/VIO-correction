@@ -24,6 +24,7 @@ def main(seq):
     # Get input parameters
     svo_input_path = opt.input_svo_file
     output_dir = opt.output_path_dir
+    ground_truth = opt.ground_truth
     plot = opt.plot
     show_FastSAM = opt.show_FastSAM
     correction_type = opt.correction_type
@@ -67,9 +68,19 @@ def main(seq):
     
     rt_param = sl.RuntimeParameters()
 
+    if ground_truth:
+        max_lat, min_lat, max_lon, min_lon, zone_number, initial_point, initial_angle, initial_point_latlon = GT_reader(seq)
+        print(f"{max_lat},{min_lat},{max_lon},{min_lon}")
+        print(initial_point)
+        print(initial_point_latlon)
+    else:
+        max_lat, min_lat, max_lon, min_lon = 426199.3624994039,425978.7850167572,4581793.943468097,4581560.487520885
+        zone_number = 32
+        initial_point = (426069.5901948642, 4581718.477949766)
+        initial_angle = 0
+        initial_point_latlon = (41.3835965, 2.1157969)
 
-    max_lat, min_lat, max_lon, min_lon, zone_number, initial_point, initial_angle, initial_point_latlon = GT_reader(seq)
-    
+
     zone = "+proj=utm +zone=" + str(zone_number) + " +ellps=WGS84 +datum=WGS84 +units=m +no_defs"
     edges,road_area,walkable_area_gdf,building_area,crossings_area,railway_area,green_area = street_segmentation(initial_point_latlon,zone,area=750)
     
@@ -239,6 +250,7 @@ if __name__ == "__main__":
     seq = "00"
     input_svo_file = "./datasets/IRI_" + seq + ".svo2"
     output_dir = "."
+    ground_truth = True
     plot = True
     show_FastSAM = False
     correction_type = "point"
@@ -247,6 +259,7 @@ if __name__ == "__main__":
     parser.add_argument('--input_svo_file', type=str, default=input_svo_file, help='Path to the .svo file')
     parser.add_argument('--output_path_dir', type = str, default = output_dir, help = 'Path to a directory, where .png will be written, if mode includes image sequence export')
     parser.add_argument('--plot', type = bool, default = plot, help= "True for a plot with the trajectory")
+    parser.add_argument('--ground_truth', type = bool, default = ground_truth, help= "True if there exists a ground truth for the sequence")
     parser.add_argument('--show_FastSAM', type = bool, default = show_FastSAM, help= "True to show FastSAM results")
     parser.add_argument('--correction_type', type = str, default = correction_type, help = "Select the type of correction: boundary, point, multipoint")
     opt = parser.parse_args()
