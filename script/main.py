@@ -70,9 +70,7 @@ def main(seq):
 
     if ground_truth:
         max_lat, min_lat, max_lon, min_lon, zone_number, initial_point, initial_angle, initial_point_latlon = GT_reader(seq)
-        print(f"{max_lat},{min_lat},{max_lon},{min_lon}")
-        print(initial_point)
-        print(initial_point_latlon)
+        
     else:
         max_lat, min_lat, max_lon, min_lon = 426199.3624994039,425978.7850167572,4581793.943468097,4581560.487520885
         zone_number = 32
@@ -126,17 +124,9 @@ def main(seq):
                 image_np = left_image.get_data()
                 point_prompt = (600,700)
 
-                if counter == 0:
+                if svo_position % 5 == 0: # Perform image segmentation every 5 frames
                     mask = fastsam.segment_with_point_prompt(image_np, point_prompt)
-                    
-                    # fastsam.left_right_point_extractor(mask, point_cloud)
-                    
                     left_distance, right_distance = fastsam.left_right_point_extractor(mask, point_cloud)
-
-                    counter = counter + 1
-                elif counter == 4:
-                    counter = 0
-                else: counter = counter + 1
 
                 if show_FastSAM:
                     # To visualize the mask:
@@ -156,6 +146,7 @@ def main(seq):
                                    translation.get()[1] + initial_point[1],
                                    translation.get()[2])
                     
+                    initial_angle = 100
                     angle_rad = np.deg2rad(initial_angle)
                     # angle_rad = 0
                     R_matrix = rotation_matrix_z(angle_rad)
@@ -170,8 +161,8 @@ def main(seq):
                     T_matrix = create_transformation_matrix((translation.get()[0],translation.get()[1],translation.get()[2]),R_matrix)
                     transf_matrix = prev_transf @ T_matrix
 
-                print(f"Estimated trajectory: {translation.get()[0]}, {translation.get()[1]}")
-                print(f"Transformation Matrix: \n {transf_matrix}")
+                print(f"Estimated trajectory: {translation.get()[0]}, {translation.get()[1]}") # Debug
+                print(f"Transformation Matrix: \n {transf_matrix}") # Debug
 
                 estimated_odom = (transf_matrix[0,3], transf_matrix[1,3])
                 point_buffer.append(estimated_odom)
@@ -203,13 +194,14 @@ def main(seq):
                     intersecting_objects = point_correction(estimated_odom, view_dist, merged_obstacles, fov_box)
 
                     if plot:
-                        plotter.last_fov_box = fov_box
-                        plotter.last_intersecting_points = intersecting_objects
 
                         point_added = plotter.add_est_point(transf_matrix[0,3], transf_matrix[1,3])
 
-                        if point_added and len(plotter.est_x) % 5 == 0:
-                            plt.pause(0.001)  # Short pause to allow GUI updates
+                        if hasattr(fov_box, 'exterior'):  # Ensure it's a valid Polygon
+                            plotter.add_temporary_elements(fov_box, intersecting_objects)
+
+                        if svo_position % 5 == 0: # Update every 5 frames
+                            plt.pause(0.001) # Short pause to allow GUI updates
 
                 elif correction_type == "multipoint":
                     multipoint_correction()

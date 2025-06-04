@@ -25,10 +25,11 @@ class RealTimePlotter:
         self.is_running = False
 
         # Downsampler Factor
-        self.downsample_factor = 5  # Plot every 5th point
+        self.downsample_factor = 1  # Plot every 5th point
         self.counter = 0
 
         # Add temporary plot elements
+        self.current_elements = []
         self.fov_patch = None
         self.intersection_points = None
         self.current_frame_count = 0
@@ -53,56 +54,52 @@ class RealTimePlotter:
 
     def update_plot(self, frame):
         """Animation update function"""
+        artists = []
+    
         if self.is_running:
-            self.current_frame_count += 1
-            elements = [self.line_est, self.line_corr]
+            # Update trajectory lines
+            self.line_est.set_data(self.est_x, self.est_y)
+            self.line_corr.set_data(self.corr_x, self.corr_y)
+            artists.extend([self.line_est, self.line_corr])
             
-            # Only update temporary elements every 5 frames
-            if self.current_frame_count % 5 == 0 and hasattr(self, 'last_fov_box'):
-                temp_elements = self.update_temporary_elements(
-                    self.last_fov_box,
-                    self.last_intersecting_points
-                )
-                elements.extend(temp_elements)
+            # Add temporary elements if they exist
+            if hasattr(self, 'fov_patch'):
+                artists.append(self.fov_patch)
+            if hasattr(self, 'intersection_points'):
+                artists.append(self.intersection_points)
             
             # Auto-scale if needed
             if len(self.est_x) > 0:
                 self.ax.relim()
                 self.ax.autoscale_view(scalex=False, scaley=False)
-                
-        return elements
+    
+        # print(f"Returning {len(artists)} artists")  # Debug
+        return artists
 
-    def update_temporary_elements(self, fov_box=None, intersecting_points=None):
-        """Update temporary visualization elements"""
-        # Clear previous elements
-        if self.fov_patch:
-            self.fov_patch.remove()
-        if self.intersection_points:
-            self.intersection_points.remove()
+    def add_temporary_elements(self, fov_box, intersections):
+        """Clear and redraw temporary elements"""
+        # Clear old elements
+        for element in getattr(self, 'temp_elements', []):
+            try:
+                element.remove()
+            except:
+                pass
+                
+        # Create new elements
+        self.fov_patch = plt.Polygon(
+            list(fov_box.exterior.coords),
+            closed=True, fill=False, color='red', alpha=0.5
+        )
+        self.ax.add_patch(self.fov_patch)
         
-        # Plot new elements if provided
-        if fov_box is not None:
-            self.fov_patch = plt.Polygon(
-                list(fov_box.exterior.coords),
-                closed=True,
-                fill=False,
-                color='lightblue',
-                linewidth=1,
-                alpha=0.5
-            )
-            self.ax.add_patch(self.fov_patch)
-        
-        if intersecting_points is not None and len(intersecting_points) > 0:
-            x, y = zip(*[(p.x, p.y) for p in intersecting_points])
+        if intersections:
+            ix, iy = zip(*[(p[0], p[1]) for p in intersections])
             self.intersection_points, = self.ax.plot(
-                x, y,
-                'ro',  # Red circles
-                markersize=8,
-                alpha=0.7,
-                label='Intersections'
+                ix, iy, 'ro', markersize=2, alpha=0.7
             )
         
-        return self.line_est, self.line_corr, self.fov_patch, self.intersection_points
+        self.temp_elements = [self.fov_patch, self.intersection_points]
+        # print(f"Added {len(intersections)} intersection points") # Debug
 
     def start_animation(self):
         """Start the real-time animation"""
@@ -111,9 +108,10 @@ class RealTimePlotter:
             self.fig,
             self.update_plot,
             frames=None,
-            interval=100,  # Update every 100ms
+            interval=100,
             blit=True,
-            cache_frame_data=False
+            cache_frame_data=False,
+            init_func=lambda: [self.line_est, self.line_corr]  # Initial artists
         )
         plt.show(block=False)
 
