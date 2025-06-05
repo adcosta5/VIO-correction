@@ -169,10 +169,11 @@ def main(seq):
                 # print(f"Transformation Matrix: \n {transf_matrix}") # Debug
                 # print(f"Corrected Transformation Matrix: \n {corrected_transf_matrix}")
                 
-                corrected_odom = (transf_matrix[0,3], transf_matrix[1,3])
+                estimated_odom = (transf_matrix[0,3], transf_matrix[1,3])
                 # corrected_odom = (corrected_transf_matrix[0,3], corrected_transf_matrix[1,3])
-                print(f"Estimated point: {corrected_odom}\n")
-                point_buffer.append(corrected_odom)
+                corrected_odom = (transf_matrix[0,3], transf_matrix[1,3])
+                print(f"Estimated point: {estimated_odom}\n")
+                point_buffer.append(estimated_odom)
 
                 if len(point_buffer) >= 2:
                     if len(point_buffer) == 5:
@@ -180,8 +181,8 @@ def main(seq):
                     else:
                         past_x, past_y = point_buffer[0]  # First available point
                     
-                    dx = corrected_odom[0] - past_x
-                    dy = corrected_odom[1] - past_y
+                    dx = estimated_odom[0] - past_x
+                    dy = estimated_odom[1] - past_y
                     line_angle = np.arctan2(dy, dx)
                 else:
                     line_angle = 0
@@ -195,7 +196,7 @@ def main(seq):
                 fov_box = Polygon(rotated_box_coords)
 
                 if correction_type == "boundary":
-                    adjusted_point = boundary_correction(corrected_odom, merged_obstacles)
+                    adjusted_point = boundary_correction(corrected_odom, merged_obstacles, crossings_area)
                     print(f"Adjusted point: {adjusted_point}\n")
                     
                     if plot:
@@ -207,21 +208,21 @@ def main(seq):
 
 
                 elif correction_type == "point":
-                    if svo_position > 50:
-                        intersecting_objects, corrected_point = point_correction(corrected_odom, view_dist, merged_obstacles, fov_box, line_angle,left_distance,right_distance)
+                    # if svo_position > 50:
+                    intersecting_objects, corrected_point = point_correction(corrected_odom, view_dist, merged_obstacles, fov_box, line_angle,left_distance,right_distance)
 
-                        # corrected_transf_matrix[0,3] = corrected_point[0]
-                        # corrected_transf_matrix[1,3] = corrected_point[1]
+                    # corrected_transf_matrix[0,3] = corrected_point[0]
+                    # corrected_transf_matrix[1,3] = corrected_point[1]
 
-                        if plot:
-                                point_added = plotter.add_est_point(transf_matrix[0,3], transf_matrix[1,3])
-                                corrected_point_added = plotter.add_corr_point(corrected_point[0], corrected_point[1])
+                    if plot:
+                            point_added = plotter.add_est_point(transf_matrix[0,3], transf_matrix[1,3])
+                            corrected_point_added = plotter.add_corr_point(corrected_point[0], corrected_point[1])
 
-                                if hasattr(fov_box, 'exterior'):  # Ensure it's a valid Polygon
-                                    plotter.add_temporary_elements(fov_box, intersecting_objects)
+                            if hasattr(fov_box, 'exterior'):  # Ensure it's a valid Polygon
+                                plotter.add_temporary_elements(fov_box, intersecting_objects)
 
-                                if svo_position % 5 == 0: # Update every 5 frames
-                                    plt.pause(0.001) # Short pause to allow GUI updates
+                            # if svo_position % 5 == 0: # Update every 5 frames
+                            plt.pause(0.001) # Short pause to allow GUI updates
 
                 elif correction_type == "multipoint":
                     multipoint_correction()
@@ -265,7 +266,7 @@ if __name__ == "__main__":
     ground_truth = True
     plot = True
     show_FastSAM = False
-    correction_type = "point"
+    correction_type = "boundary"
 
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('--input_svo_file', type=str, default=input_svo_file, help='Path to the .svo file')

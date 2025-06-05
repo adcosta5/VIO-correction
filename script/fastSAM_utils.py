@@ -65,7 +65,7 @@ class FastSAMutils:
         """
         contours = self.check_contour_valid_point_cloud(mask, point_cloud)    
 
-        # X Distance to the leftmost and rightmost points
+        # Y Distance to the leftmost and rightmost points
         leftmost_point = None
         rightmost_point = None
         for contour in contours:
