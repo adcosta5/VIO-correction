@@ -171,7 +171,7 @@ def main(seq):
                 
                 corrected_odom = (transf_matrix[0,3], transf_matrix[1,3])
                 # corrected_odom = (corrected_transf_matrix[0,3], corrected_transf_matrix[1,3])
-                print(f"Estimated point: {corrected_odom}")
+                print(f"Estimated point: {corrected_odom}\n")
                 point_buffer.append(corrected_odom)
 
                 if len(point_buffer) >= 2:
@@ -196,7 +196,7 @@ def main(seq):
 
                 if correction_type == "boundary":
                     adjusted_point = boundary_correction(corrected_odom, merged_obstacles)
-                    print(f"Adjusted point: {adjusted_point}")
+                    print(f"Adjusted point: {adjusted_point}\n")
                     
                     if plot:
                         point_added = plotter.add_est_point(transf_matrix[0,3], transf_matrix[1,3])
@@ -259,7 +259,7 @@ def main(seq):
 
 if __name__ == "__main__":
     
-    seq = "07"
+    seq = "00"
     input_svo_file = "./datasets/IRI_" + seq + ".svo2"
     output_dir = "."
     ground_truth = True

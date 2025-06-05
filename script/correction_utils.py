@@ -109,10 +109,12 @@ def point_correction(point, max_distance, obstacles_geometry, fov_box, line_angl
         print(f"ZED left: {left_distance}\n")
 
         # If the distance from the camera is None correction is 0.
-        left_correction =  (left_distance or dist_left) - dist_left
-        right_correction = (right_distance or dist_right) - dist_right
+        # Return positive when point is to far away from the edge, and the other way around. (right_distance is negative (coordinate system))
+        left_correction =  (left_distance or dist_left) - dist_left      
+        right_correction =  - (dist_right + (right_distance or dist_right))
 
         print(f"Correction: {right_correction}, {left_correction}\n") # Debug
+        print(f"Line angle: {line_angle}")
 
         correction = min(left_correction, right_correction)
 
@@ -122,16 +124,32 @@ def point_correction(point, max_distance, obstacles_geometry, fov_box, line_angl
             d for d in [left_distance, right_distance] if d is not None
             ) if any(d is not None for d in [left_distance, right_distance]) else None
         
-        correction = dist - (min_dist_ZED or dist)
+        if min_dist_ZED == left_distance:
+            correction = (min_dist_ZED or dist) - dist
+
+        elif min_dist_ZED == right_distance:
+            correction = - (dist + (min_dist_ZED or dist))
+
+        else:
+            correction = 0
         
 
     else: correction = 0
+
+
+    if (-np.pi/2) < line_angle < 0:
+        line_angle = np.pi/2 - line_angle
+    elif -np.pi < line_angle < (-np.pi/2):
+        line_angle = np.pi - line_angle
+    elif (-np.pi/2) < line_angle < (-np.pi * 3/4):
+        line_angle = -3/4 * np.pi - line_angle
+    else: line_angle = line_angle
 
     rot_matrix = np.array([
         [np.cos(line_angle), np.sin(line_angle)],
         [-np.sin(line_angle), np.cos(line_angle)]
     ])
-    rotated_point = rot_matrix @ np.array([correction,0]).T
+    rotated_point = rot_matrix @ np.array([0,correction]).T
     corrected_point = (point[0] + rotated_point[0], point[1] + rotated_point[1])
     
     print(f"Corrected_point: {corrected_point}") # Debug
