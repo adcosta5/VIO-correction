@@ -129,7 +129,7 @@ def main(seq):
                         mask = fastsam.segment_with_point_prompt(image_np, point_prompt)
                         left_distance, right_distance = fastsam.left_right_point_extractor(mask, point_cloud)
 
-
+                
                 if show_FastSAM:
                     # To visualize the mask:
                     cv2.imshow("Segmentation Mask", mask * 255)
@@ -259,7 +259,7 @@ def main(seq):
 
 if __name__ == "__main__":
     
-    seq = "00"
+    seq = "07"
     input_svo_file = "./datasets/IRI_" + seq + ".svo2"
     output_dir = "."
     ground_truth = True

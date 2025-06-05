@@ -103,10 +103,10 @@ def point_correction(point, max_distance, obstacles_geometry, fov_box, line_angl
         dist_left = np.linalg.norm(np.array(intersecting_objects[0]) - np.array(point)) # Euclidean distance is the L2 norm
         dist_right = np.linalg.norm(np.array(intersecting_objects[1]) - np.array(point))
 
-        # print(f"Dist right: {dist_right}") # Debug
-        # print(f"ZED right: {right_distance}\n")
-        # print(f"Dist left: {dist_left}")
-        # print(f"ZED left: {left_distance}\n")
+        print(f"Dist right: {dist_right}") # Debug
+        print(f"ZED right: {right_distance}\n")
+        print(f"Dist left: {dist_left}")
+        print(f"ZED left: {left_distance}\n")
 
         # If the distance from the camera is None correction is 0.
         left_correction =  (left_distance or dist_left) - dist_left

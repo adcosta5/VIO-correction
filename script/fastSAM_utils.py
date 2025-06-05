@@ -72,9 +72,9 @@ class FastSAMutils:
             for point in contour:
                 x, y = int(point[0,0]), int(point[0,1])
                 point3D = point_cloud.get_value(x,y)
-                if leftmost_point is None or point3D[1][0] < leftmost_point:
-                    leftmost_point = point3D[1][0]
-                if rightmost_point is None or point3D[1][0] > rightmost_point:
-                    rightmost_point = point3D[1][0]
+                if leftmost_point is None or point3D[1][1] > leftmost_point: # Point [1][1] refers to Y axis, horizontal distance.
+                    leftmost_point = point3D[1][1]
+                if rightmost_point is None or point3D[1][1] < rightmost_point:
+                    rightmost_point = point3D[1][1]
   
         return leftmost_point, rightmost_point
