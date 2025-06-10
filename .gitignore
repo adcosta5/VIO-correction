@@ -1,4 +1,8 @@
-/cache/
+script/cache/
+script/weights
 /datasets/
 /weights/
 /script/__pycache__/
+*/__pycache__/*
+script/fastsam/
+script/ultralytics/
