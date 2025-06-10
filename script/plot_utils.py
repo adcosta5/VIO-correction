@@ -32,6 +32,7 @@ class RealTimePlotter:
         self.current_elements = []
         self.fov_patch = None
         self.intersection_points = None
+        self.point_cloud_points = None
         self.current_frame_count = 0
         self._artists = []  # Track all managed artists
         self._init_artists()
@@ -72,6 +73,8 @@ class RealTimePlotter:
             active_artists.append(self.fov_patch)
         if hasattr(self, 'intersection_points') and self.intersection_points:
             active_artists.append(self.intersection_points)
+        if hasattr(self, 'point_cloud_points') and self.point_cloud_points:
+            active_artists.append(self.point_cloud_points)
         
         # Verify all artists before return
         valid_artists = []
@@ -83,34 +86,43 @@ class RealTimePlotter:
         
         return valid_artists
 
-    def add_temporary_elements(self, fov_box, intersections):
+    def add_temporary_elements(self, fov_box, intersections, point_cloud):
         """Clear and redraw temporary elements"""
         # Clear old elements
-        for artist in [a for a in [self.fov_patch, self.intersection_points] if a]:
-            try:
-                artist.remove()
-            except:
-                pass
+        for artist in [self.fov_patch, self.intersection_points, self.point_cloud_points]:
+            if artist:
+                try:
+                    artist.remove()
+                except:
+                    pass
         
         # Create new FOV patch
         if fov_box and hasattr(fov_box, 'exterior'):
             self.fov_patch = plt.Polygon(
                 list(fov_box.exterior.coords),
-                closed=True, fill=False, color='red', alpha=0.5
+                closed=True, fill=False, color='red', alpha=0.5, 
+                label='FOV Boundary', zorder=5
             )
             self.ax.add_patch(self.fov_patch)
         
-        # Create intersection points
+        # Update intersection points
         if intersections:
             ix, iy = zip(*[(p[0], p[1]) for p in intersections])
             self.intersection_points, = self.ax.plot(
-                ix, iy, 'ro', markersize=8, alpha=0.7
+                ix, iy, 'ro', markersize=3, alpha=0.7, 
+                label='Cartographic Points', zorder=8
             )
         
-        # Verify new artists
-        for artist in [self.fov_patch, self.intersection_points]:
-            if artist and not hasattr(artist, 'axes'):
-                print(f"Warning: Failed to create proper artist for {artist}")
+        # Update point cloud
+        if point_cloud:
+            ix, iy = zip(*[(p[0], p[1]) for p in point_cloud])
+            self.point_cloud_points, = self.ax.plot(
+                ix, iy, 'gx', markersize=3, alpha=0.7, 
+                label='ZED Point Cloud', zorder=10
+            )
+
+        # Update the legend to include all elements
+        self.update_legend()
 
     def start_animation(self):
         """Start the real-time animation"""
@@ -165,13 +177,32 @@ class RealTimePlotter:
         self.line_corr, = self.ax.plot([], [], 'dodgerblue', label='Corrected', lw=2)
         self.fov_patch = None
         self.intersection_points = None
+        self.point_cloud_points, = self.ax.plot([], [], 'gx', markersize=3, alpha=0.7, zorder=10)  # Initialize empty
+    
+        # Register ALL artists that need updating
+        self._artists = [self.line_est, self.line_corr, self.point_cloud_points]
+
+    def update_legend(self):
+        """Update the legend with all current elements"""
+        handles, labels = self.ax.get_legend_handles_labels()
         
-        # Register permanent artists
-        self._artists = [self.line_est, self.line_corr]
+        # Get handles from all possible artists
+        all_handles = [
+            self.line_est,
+            self.line_corr,
+            self.fov_patch,
+            self.intersection_points,
+            self.point_cloud_points
+        ]
         
-        # Verify artists
-        for artist in self._artists:
-            assert hasattr(artist, 'axes'), f"Artist {artist} has no axes"
+        # Filter out None values and get their labels
+        valid_handles = [h for h in all_handles if h is not None]
+        valid_labels = [h.get_label() for h in valid_handles]
+        
+        # Update legend
+        self.ax.legend(handles=valid_handles, labels=valid_labels, loc='upper left')
+
+
 
     def close(self):
         """Clean up"""

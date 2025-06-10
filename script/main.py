@@ -47,7 +47,6 @@ def main(seq):
     init.depth_mode = sl.DEPTH_MODE.NEURAL  # Better quality
     init.enable_right_side_measure = False
 
-
     # Open the SVO file 
     err = zed.open(init)
     if err != sl.ERROR_CODE.SUCCESS:
@@ -73,17 +72,15 @@ def main(seq):
         
     else:
         max_lat, min_lat, max_lon, min_lon = 426199.3624994039,425978.7850167572,4581793.943468097,4581560.487520885
-        zone_number = 32
-        initial_point = (426069.5901948642, 4581718.477949766)
-        initial_angle = 0
-        initial_point_latlon = (41.3835965, 2.1157969)
-
+        zone_number = 31
+        initial_point = (426191.96, 4581761.48)
+        initial_angle = 180
+        initial_point_latlon = (41.3839954, 2.1172553)
 
     zone = "+proj=utm +zone=" + str(zone_number) + " +ellps=WGS84 +datum=WGS84 +units=m +no_defs"
     edges,road_area,walkable_area_gdf,building_area,crossings_area,railway_area,green_area = street_segmentation(initial_point_latlon,zone,area=750)
-    
-    merged_obstacles = merge_geoseries_obstacles(road_area, building_area, railway_area,green_area)
 
+    merged_obstacles = merge_geoseries_obstacles(road_area, building_area, railway_area,green_area)
 
     #Define fov_box parameters for the point and multipoint correction
     view_dist = 20 # 20 meters viewing distance
@@ -105,12 +102,11 @@ def main(seq):
     sys.stdout.write("Reading SVO... Use Ctrl-C to interrupt.\n")
     nb_frames = zed.get_svo_number_of_frames()
     is_first_frame = True
-    counter = 0
 
     # Initialize translation buffer
-    point_buffer = deque(maxlen=5)
+    point_buffer = deque(maxlen=10)
     smoothed_translation = None
-    
+
     try: 
         while True:
             err = zed.grab(rt_param)
@@ -126,10 +122,11 @@ def main(seq):
 
                 if correction_type != "boundary":
                     if svo_position % 5 == 0: # Perform image segmentation every 5 frames
-                        mask = fastsam.segment_with_point_prompt(image_np, point_prompt)
-                        left_distance, right_distance = fastsam.left_right_point_extractor(mask, point_cloud)
+                        mask = fastsam.segment_with_point_prompt(image_np, point_prompt) 
+                        contours = fastsam.check_contour_valid_point_cloud(mask, point_cloud)
+                        if correction_type == "point":
+                            left_distance, right_distance = fastsam.left_right_point_extractor(mask, point_cloud, contours)
 
-                
                 if show_FastSAM:
                     # To visualize the mask:
                     cv2.imshow("Segmentation Mask", mask * 255)
@@ -154,7 +151,7 @@ def main(seq):
                     R_matrix = rotation_matrix_z(angle_rad)
                     # R_matrix = quaternion_to_rotation_matrix((orientation.get()[0],orientation.get()[1],orientation.get()[2],orientation.get()[3]))
                     transf_matrix = create_transformation_matrix(first_point,R_matrix)
-                    # corrected_transf_matrix = transf_matrix
+                    corrected_transf_matrix = transf_matrix
 
                     is_first_frame = False  # Ensure this runs only once
                 
@@ -163,21 +160,21 @@ def main(seq):
                     R_matrix = quaternion_to_rotation_matrix((orientation.get()[0],orientation.get()[1],orientation.get()[2],orientation.get()[3]))
                     T_matrix = create_transformation_matrix((translation.get()[0],translation.get()[1],translation.get()[2]),R_matrix)
                     transf_matrix = prev_transf @ T_matrix
-                    # corrected_transf_matrix = prev_corrected_transf @ T_matrix
+                    corrected_transf_matrix = prev_corrected_transf @ T_matrix
 
                 # print(f"Estimated trajectory: {translation.get()[0]}, {translation.get()[1]}") # Debug
                 # print(f"Transformation Matrix: \n {transf_matrix}") # Debug
                 # print(f"Corrected Transformation Matrix: \n {corrected_transf_matrix}")
                 
                 estimated_odom = (transf_matrix[0,3], transf_matrix[1,3])
-                # corrected_odom = (corrected_transf_matrix[0,3], corrected_transf_matrix[1,3])
-                corrected_odom = (transf_matrix[0,3], transf_matrix[1,3])
-                print(f"Estimated point: {estimated_odom}\n")
+                corrected_odom = (corrected_transf_matrix[0,3], corrected_transf_matrix[1,3])
+                # corrected_odom = (transf_matrix[0,3], transf_matrix[1,3])
+                # print(f"Estimated point: {estimated_odom}\n") # Debug
                 point_buffer.append(estimated_odom)
 
                 if len(point_buffer) >= 2:
-                    if len(point_buffer) == 5:
-                        past_x, past_y = point_buffer[0]  # 5-frame window
+                    if len(point_buffer) == 10:
+                        past_x, past_y = point_buffer[0]  # 10-frame window
                     else:
                         past_x, past_y = point_buffer[0]  # First available point
                     
@@ -197,7 +194,10 @@ def main(seq):
 
                 if correction_type == "boundary":
                     adjusted_point = boundary_correction(corrected_odom, merged_obstacles, crossings_area)
-                    print(f"Adjusted point: {adjusted_point}\n")
+                    # print(f"Adjusted point: {adjusted_point}\n") #Debug
+
+                    corrected_transf_matrix[0,3] = adjusted_point[0]
+                    corrected_transf_matrix[1,3] = adjusted_point[1]
                     
                     if plot:
                         point_added = plotter.add_est_point(transf_matrix[0,3], transf_matrix[1,3])
@@ -208,25 +208,35 @@ def main(seq):
 
 
                 elif correction_type == "point":
-                    # if svo_position > 50:
-                    intersecting_objects, corrected_point = point_correction(corrected_odom, view_dist, merged_obstacles, fov_box, line_angle,left_distance,right_distance)
+                    if svo_position > 50 and (svo_position % 5 == 0 ):
+                        intersecting_objects, corrected_point = point_correction(corrected_odom, view_dist, merged_obstacles, building_area, crossings_area, fov_box, line_angle, left_distance, right_distance)
 
-                    # corrected_transf_matrix[0,3] = corrected_point[0]
-                    # corrected_transf_matrix[1,3] = corrected_point[1]
+                        corrected_transf_matrix[0,3] = corrected_point[0]
+                        corrected_transf_matrix[1,3] = corrected_point[1]
 
-                    if plot:
+                        if plot:
                             point_added = plotter.add_est_point(transf_matrix[0,3], transf_matrix[1,3])
-                            corrected_point_added = plotter.add_corr_point(corrected_point[0], corrected_point[1])
+                            corrected_point_added = plotter.add_corr_point(corrected_transf_matrix[0,3], corrected_transf_matrix[1,3])
 
                             if hasattr(fov_box, 'exterior'):  # Ensure it's a valid Polygon
-                                plotter.add_temporary_elements(fov_box, intersecting_objects)
+                                plotter.add_temporary_elements(fov_box, intersecting_objects, 0)
 
-                            # if svo_position % 5 == 0: # Update every 5 frames
-                            plt.pause(0.001) # Short pause to allow GUI updates
+                            if svo_position % 5 == 0: # Update every 5 frames
+                                plt.pause(0.001) # Short pause to allow GUI updates
 
                 elif correction_type == "multipoint":
-                    multipoint_correction()
-                    
+                    # if svo_position > 50 and (svo_position % 5 == 0):
+                    if svo_position == 1000:
+                        intersecting_objects, rotated_point_cloud = multipoint_correction(corrected_odom, view_dist, merged_obstacles, building_area, crossings_area, fov_box, line_angle, mask, point_cloud, contours)
+
+                        if plot:
+
+                            if hasattr(fov_box, 'exterior'):  # Ensure it's a valid Polygon
+                                    plotter.add_temporary_elements(fov_box, intersecting_objects, rotated_point_cloud)
+
+                            if svo_position % 5 == 0:
+                                plt.pause(0.001)
+
                 else: 
 
                     if is_first_frame:
@@ -240,8 +250,7 @@ def main(seq):
                         
 
                 prev_transf = transf_matrix
-                # prev_corrected_transf = corrected_transf_matrix
-    
+                prev_corrected_transf = corrected_transf_matrix
         
             elif err == sl.ERROR_CODE.END_OF_SVOFILE_REACHED:
                 sys.stdout.write("\nSVO end has been reached. Exiting now.\n")
@@ -264,9 +273,9 @@ if __name__ == "__main__":
     input_svo_file = "./datasets/IRI_" + seq + ".svo2"
     output_dir = "."
     ground_truth = True
-    plot = True
+    plot = False 
     show_FastSAM = False
-    correction_type = "boundary"
+    correction_type = "multipoint"
 
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('--input_svo_file', type=str, default=input_svo_file, help='Path to the .svo file')

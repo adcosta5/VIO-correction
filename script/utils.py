@@ -113,7 +113,7 @@ def street_segmentation(initial_point,zone,area=750):
 
     Parameters:
         initial_point: (1,2) array of the coordinates (latitude, longitude) of the initial point of the sequence
-        zone: UTM zone of the region  e.g. ("+proj=utm +zone=32 +ellps=WGS84 +datum=WGS84 +units=m +no_defs") for KITTI sequence in Germany
+        zone: UTM zone of the region  e.g. ("+proj=utm +zone=31 +ellps=WGS84 +datum=WGS84 +units=m +no_defs") for Barcelona
         area: The radius of the area around the initial point that information is extracted.
     Returns:
         edges: Graph containing the center of the streets of an area around the initial point.

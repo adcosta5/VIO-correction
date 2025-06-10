@@ -60,7 +60,7 @@ class FastSAMutils:
         return contours
 
 
-    def left_right_point_extractor(self, mask, point_cloud):
+    def left_right_point_extractor(self, mask, point_cloud, contours):
         """
         """
         contours = self.check_contour_valid_point_cloud(mask, point_cloud)    
