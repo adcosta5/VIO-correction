@@ -17,7 +17,6 @@ from fastSAM_utils import FastSAMutils
 from correction_utils import boundary_correction, point_correction, multipoint_correction, merge_geoseries_obstacles
 from utils import GT_reader, street_segmentation, quaternion_to_rotation_matrix, create_transformation_matrix, rotation_matrix_z
 import sys
-sys.path.append("../../OrienterNet/")
 from orienternet_utils import ori_pos_orienternet
 
 def main(seq):
@@ -175,7 +174,7 @@ def main(seq):
                     orientations, positions = ori_pos_orienternet(image_ori, prior_address, seq)
                     print(orientations, positions)
 
-                    initial_angle= 90 - orientations[1] 
+                    initial_angle= 90 - orientations[0] 
                     angle_rad = np.deg2rad(initial_angle)
 
                      # Add arrow for the initial orientation from OrienterNet
@@ -317,13 +316,13 @@ def main(seq):
 
 if __name__ == "__main__":
     
-    seq = "02"
+    seq = "20"
     input_svo_file = "../../datasets/BIEL/svofiles/IRI_" + seq + ".svo2"
     output_dir = "."
     ground_truth = True
     plot = True 
     show_FastSAM = False
-    correction_type = "boundary"
+    correction_type = "point"
 
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('--input_svo_file', type=str, default=input_svo_file, help='Path to the .svo file')
