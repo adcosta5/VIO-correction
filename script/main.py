@@ -73,6 +73,7 @@ def main(seq):
         max_lat, min_lat, max_lon, min_lon, zone_number, initial_point, initial_angle, initial_point_latlon = GT_reader(seq)
         
     else:
+        # Hardcode
         max_lat, min_lat, max_lon, min_lon = 426199.3624994039,425978.7850167572,4581793.943468097,4581560.487520885
         zone_number = 31
         initial_point = (426191.96, 4581761.48)
@@ -166,15 +167,14 @@ def main(seq):
                     first_point = (translation.get()[0] + initial_point[0],
                                    translation.get()[1] + initial_point[1],
                                    translation.get()[2])
-                    prior_address = f"{initial_point_latlon[0]}, {initial_point_latlon[1]}"
 
-                    # Convert image_np to orienternet
+                    # Convert image_np to orienternet format (RGB)
                     image_ori = image_np[:,:,:3]
-                    image_ori = image_ori[:, [2,1,0]]
-                    orientations, positions = ori_pos_orienternet(image_ori, prior_address, seq)
-                    print(orientations, positions)
+                    image_ori = image_ori[:, :, [2, 1, 0]]
+                    uncorrected_angle = ori_pos_orienternet(image_ori, np.array(initial_point_latlon))
 
-                    initial_angle= 90 - orientations[0] 
+                    initial_angle = 90 - uncorrected_angle
+                    print(f"The initial angle is: {initial_angle}")
                     angle_rad = np.deg2rad(initial_angle)
 
                      # Add arrow for the initial orientation from OrienterNet
