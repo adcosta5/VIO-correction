@@ -209,6 +209,7 @@ def main(seq):
 
                 elif correction_type == "point":
                     if svo_position > 50 and (svo_position % 5 == 0 ):
+
                         intersecting_objects, corrected_point = point_correction(corrected_odom, view_dist, merged_obstacles, building_area, crossings_area, fov_box, line_angle, left_distance, right_distance)
 
                         corrected_transf_matrix[0,3] = corrected_point[0]
@@ -225,14 +226,22 @@ def main(seq):
                                 plt.pause(0.001) # Short pause to allow GUI updates
 
                 elif correction_type == "multipoint":
-                    # if svo_position > 50 and (svo_position % 5 == 0):
-                    if svo_position == 1000:
-                        intersecting_objects, rotated_point_cloud = multipoint_correction(corrected_odom, view_dist, merged_obstacles, building_area, crossings_area, fov_box, line_angle, mask, point_cloud, contours)
+                    print(f"SVO_POSITION: {svo_position}")
+                    if svo_position > 50 and (svo_position % 5 == 0):
+                    # if svo_position == 1270: 
+                        intersecting_objects, rotated_point_cloud, corrected_point = multipoint_correction(corrected_odom, view_dist, merged_obstacles, building_area, crossings_area, fov_box, line_angle, mask, point_cloud, contours)
+                        print(f"Estimated Point: {estimated_odom}")
+                        print(f"Corrected Point (multipoint): {corrected_point}")
+
+                        corrected_transf_matrix[0,3] = corrected_point[0]
+                        corrected_transf_matrix[1,3] = corrected_point[1]
 
                         if plot:
+                            point_added = plotter.add_est_point(transf_matrix[0,3], transf_matrix[1,3])
+                            corrected_point_added = plotter.add_corr_point(corrected_transf_matrix[0,3], corrected_transf_matrix[1,3])
 
-                            if hasattr(fov_box, 'exterior'):  # Ensure it's a valid Polygon
-                                    plotter.add_temporary_elements(fov_box, intersecting_objects, rotated_point_cloud)
+                            # if hasattr(fov_box, 'exterior'):  # Ensure it's a valid Polygon
+                            #         plotter.add_temporary_elements(fov_box, intersecting_objects, 0)
 
                             if svo_position % 5 == 0:
                                 plt.pause(0.001)
@@ -273,7 +282,7 @@ if __name__ == "__main__":
     input_svo_file = "./datasets/IRI_" + seq + ".svo2"
     output_dir = "."
     ground_truth = True
-    plot = False 
+    plot = True
     show_FastSAM = False
     correction_type = "multipoint"
 

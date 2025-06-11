@@ -2,7 +2,13 @@ import geopandas as gpd
 import numpy as np
 from shapely.geometry import GeometryCollection, LineString, Point, Polygon, box
 from shapely.ops import nearest_points, unary_union
-import random
+from scipy.interpolate import interp1d
+from scipy.spatial import KDTree
+from scipy.optimize import minimize
+from sklearn.linear_model import RANSACRegressor
+from sklearn.neighbors import NearestNeighbors
+
+import matplotlib.pyplot as plt
 
 from fastSAM_utils import FastSAMutils
 
@@ -155,14 +161,13 @@ def point_correction(point, max_distance, obstacles_geometry, building_area, cro
 
         else:
             correction = 0
-        
 
     else: correction = 0
 
     if abs(correction) > 1.5:
-        correction = 1.5 * np.sign(correction)
+        # correction = 1.5 * np.sign(correction)
+        return intersecting_objects, point
     else: correction = correction
-
 
     if (-np.pi/2) < line_angle < 0:
         correction = np.array([correction,0]).T
@@ -185,7 +190,6 @@ def point_correction(point, max_distance, obstacles_geometry, building_area, cro
 
     return intersecting_objects, corrected_point
 
-
 def point_cloud_rotation(real_point, line_angle, mask, point_cloud, contours):
     
     rotated_point_cloud = []
@@ -193,13 +197,7 @@ def point_cloud_rotation(real_point, line_angle, mask, point_cloud, contours):
         for point in contour:
             x, y = int(point[0,0]), int(point[0,1])
             point3D = point_cloud.get_value(x,y)
-            if (-np.pi/2) < line_angle < 0:
-                pcp = np.array([point3D[1][1],point3D[1][0]]).T
-            elif -np.pi < line_angle < (-np.pi/2):
-                pcp = np.array([point3D[1][0],point3D[1][1]]).T
-            elif (-np.pi/2) < line_angle < (-np.pi * 3/4):
-                pcp = np.array([point3D[1][1],point3D[1][0]]).T
-            else: pcp = np.array([point3D[1][0],point3D[1][1]]).T
+            pcp = np.array([point3D[1][0],point3D[1][1]]).T
 
             rot_matrix = np.array([
                 [np.cos(line_angle), -np.sin(line_angle)],
@@ -208,118 +206,230 @@ def point_cloud_rotation(real_point, line_angle, mask, point_cloud, contours):
             rotated_point = rot_matrix @ pcp
             transformed_point = (real_point[0] + rotated_point[0], real_point[1] + rotated_point[1])
             rotated_point_cloud.append(transformed_point)
-    print(f"Transformed points: \n {rotated_point_cloud}")
+
     return rotated_point_cloud
 
-from scipy.spatial import KDTree
-from scipy.optimize import minimize
 
-def robust_icp_2d(source, target, max_iterations=100, tolerance=1e-8):
-    """
-    Enhanced ICP with:
-    - Point cloud normalization
-    - Better initialization
-    - Outlier rejection
-    """
-    # 1. Normalize point clouds to [0,1] range
-    src, src_scale, src_offset = normalize_points(source)
-    tgt, tgt_scale, tgt_offset = normalize_points(target)
+def line_identificator(point_cloud, point, dist=10, n_samples=50):
+    if point_cloud.ndim == 1:
+        point_cloud = point_cloud.reshape(-1, 3)
+
+    # Add check for minimum number of points
+    if len(point_cloud) < 2:
+        print("Not enough points to fit a line (need at least 2 points)")
+        return None, None
+
+    # Fit the first line
+    ransac1 = RANSACRegressor(min_samples=2, residual_threshold=0.03, max_trials=1000)
+    ransac1.fit(point_cloud[:, 0].reshape(-1, 1), point_cloud[:, 1])
     
-    # 2. Initialize transformation
-    params = np.zeros(3)  # [tx, ty, theta]
-    errors = []
+    # Get inliers and outliers
+    inlier_mask1 = ransac1.inlier_mask_
+    line1_inliers = point_cloud[inlier_mask1]
+    outliers = point_cloud[~inlier_mask1]
+
+    x_min = point[0]
+    x_max = x_min + 10
+    x_samples = np.linspace(x_min, x_max, n_samples)
+    y_samples = ransac1.predict(x_samples.reshape(-1, 1))
+
+    line1 = np.column_stack((x_samples, y_samples))
+
+    # Line 1 equation (y = m1*x + b1)
+    m1 = ransac1.estimator_.coef_[0]
+    b1 = ransac1.estimator_.intercept_
+    # print(f"Line 1: y = {m1:.4f}x + {b1:.4f} | Inliers: {len(line1_inliers)}")
+
+    line2 = None
+    m2 = 0
+    b2 = 0
+
+    if len(outliers) >= 2:
+        ransac2 = RANSACRegressor(min_samples=2, residual_threshold=0.03, max_trials=1000)
+        ransac2.fit(outliers[:, 0].reshape(-1, 1), outliers[:, 1])
+        
+        inlier_mask2 = ransac2.inlier_mask_
+        line2_inliers = outliers[inlier_mask2]
+
+        x_samples = np.linspace(x_min, x_max, n_samples)
+        y_samples = ransac2.predict(x_samples.reshape(-1, 1))
+        
+        line2_candidate = np.column_stack((x_samples, y_samples))
+        # Line 2 equation (y = m2*x + b2)
+        m2_candidate = ransac2.estimator_.coef_[0]
+        b2_candidate = ransac2.estimator_.intercept_
+
+        # Calculate the angle between the two lines in degrees in order to obtain the most parallel lines possible
+        angle = np.abs(np.arctan((m2_candidate - m1) / (1 + m1 * m2_candidate))) * 180 / np.pi
+        # print(f"Angle: {angle}") # Debug
+        if angle <= 2:  # Only keep line2 if angle is <= 2 degrees
+            line2 = line2_candidate
+            m2 = m2_candidate
+            b2 = b2_candidate
+            # print(f"Line 2: y = {m2:.4f}x + {b2:.4f} | Inliers: {len(line2_inliers)}")
+        else:
+            print(f"Angle between lines ({angle:.2f}°) > 1°. Discarding line2.")
+    else:
+        print("Not enough outliers to fit a second line.")
+
+    # # # DEBUG OF THE LINE EXTRACTOR BY PLOTTING
+    # plt.scatter(point_cloud[:, 0], point_cloud[:, 1], label="All Points", color='gray', alpha=0.5)
+    # plt.scatter(line1_inliers[:, 0], line1_inliers[:, 1], color='red', label="Line 1 Inliers")
+    # if m2 != 0:  # Only plot line2 if it was kept
+    #     plt.scatter(line2_inliers[:, 0], line2_inliers[:, 1], color='blue', label="Line 2 Inliers")
+
+    # # Plot the fitted lines
+    # x_vals = np.array([point_cloud[:, 0].min(), point_cloud[:, 0].max()])
+    # plt.plot(x_vals, m1 * x_vals + b1, 'r-', label=f"Line 1: y = {m1:.2f}x + {b1:.2f}")
+    # if m2 != 0:  # Only plot line2 if it was kept
+    #     plt.plot(x_vals, m2 * x_vals + b2, 'b-', label=f"Line 2: y = {m2:.2f}x + {b2:.2f}")
+
+    # plt.xlabel("X Coordinate")
+    # plt.ylabel("Y Coordinate")
+    # plt.legend()
+    # plt.show()
+
+    return line1, line2
+
+def icp_2d(source, target, max_iterations=500, tolerance=1e-8):
+    """
+    2D Iterative Closest Point (ICP) algorithm.
+    
+    Parameters:
+    - source: numpy array (Nx2), source point cloud to align to target
+    - target: numpy array (Mx2), target point cloud
+    - max_iterations: int, maximum number of iterations
+    - tolerance: float, convergence tolerance
+    
+    Returns:
+    - aligned_source: numpy array (Nx2), source points after alignment
+    - transformation: tuple (R, t), rotation matrix and translation vector
+    - distances: list, mean distances at each iteration
+    """
+    
+    # Make copies to avoid modifying original arrays
+    src = np.copy(source)
+    dst = np.copy(target)
+    
+    # Initialize transformation
+    R = np.eye(2)  # Identity matrix (no rotation)
+    t = np.zeros(2)  # Zero translation
+    
+    prev_error = 0
+    distances = []
     
     for i in range(max_iterations):
-        # 3. Find closest points (with outlier rejection)
-        kdtree = KDTree(tgt)
-        distances, indices = kdtree.query(src)
+        # Find nearest neighbors between source and target
+        nbrs = NearestNeighbors(n_neighbors=1, algorithm='auto').fit(dst)
+        distances, indices = nbrs.kneighbors(src)
         
-        # Reject outliers (top 10% farthest points)
-        threshold = np.percentile(distances, 90)
-        valid = distances < threshold
-        corresponding = tgt[indices[valid]]
-        filtered_src = src[valid]
+        # Compute current error
+        mean_error = np.mean(distances)
+        distances = np.append(distances,mean_error)
         
-        # 4. Compute error
-        mean_error = np.mean(distances[valid])
-        errors.append(mean_error)
-        
-        # Check convergence
-        if i > 0 and abs(errors[-1] - errors[-2]) < tolerance:
+        # Check for convergence
+        if abs(prev_error - mean_error) < tolerance:
             break
-            
-        # 5. Optimize transformation
-        def objective(p):
-            tx, ty, theta = p
-            R = np.array([[np.cos(theta), -np.sin(theta)],
-                         [np.sin(theta), np.cos(theta)]])
-            transformed = (R @ filtered_src.T).T + np.array([tx, ty])
-            return np.mean(np.linalg.norm(transformed - corresponding, axis=1))
-            
-        res = minimize(objective, params, method='L-BFGS-B')
-        params = res.x
+        prev_error = mean_error
         
-        # 6. Apply current transformation to full source
-        tx, ty, theta = params
-        R = np.array([[np.cos(theta), -np.sin(theta)],
-                     [np.sin(theta), np.cos(theta)]])
-        src = (R @ src.T).T + np.array([tx, ty])
+        # Get corresponding points from target
+        correspondences = dst[indices.ravel()]
+        
+        # Compute centroids
+        src_centroid = np.mean(src, axis=0)
+        corr_centroid = np.mean(correspondences, axis=0)
+        
+        # Center the points
+        src_centered = src - src_centroid
+        corr_centered = correspondences - corr_centroid
+        
+        # Compute covariance matrix
+        H = src_centered.T @ corr_centered
+        
+        # Singular Value Decomposition
+        U, S, Vt = np.linalg.svd(H)
+        
+        # Compute rotation
+        R = Vt.T @ U.T
+        
+        # Handle reflection case
+        if np.linalg.det(R) < 0:
+            Vt[-1, :] *= -1
+            R = Vt.T @ U.T
+        
+        # Compute translation
+        t = corr_centroid - R @ src_centroid
+        
+        # Apply transformation
+        src = (R @ src.T).T + t
     
-    # 7. Denormalize results
-    final_src = denormalize_points(src, src_scale, src_offset)
-    final_tx = params[0] * tgt_scale[0] + tgt_offset[0] - src_offset[0]
-    final_ty = params[1] * tgt_scale[1] + tgt_offset[1] - src_offset[1]
+    # Final transformation
+    transformation = (R, t)
+    aligned_source = src
     
-    return final_src, (final_tx, final_ty, params[2]), errors
-
-def normalize_points(points):
-    """Normalize points to [0,1] range"""
-    mins = np.min(points, axis=0)
-    maxs = np.max(points, axis=0)
-    scale = maxs - mins
-    scale[scale == 0] = 1  # Avoid division by zero
-    return (points - mins) / scale, scale, mins
-
-def denormalize_points(points, scale, offset):
-    """Convert normalized points back to original scale"""
-    return points * scale + offset
-
+    return aligned_source, transformation, distances
 
 def multipoint_correction(point, max_distance, obstacles_geometry, building_area, crossing_area, fov_box, line_angle, mask, point_cloud, contours, angles=list(range(-90, 90, 5))):
 
-    import matplotlib.pyplot as plt
-    
     intersecting_objects = cartographic_point_extractor(point, max_distance, obstacles_geometry, fov_box, line_angle, angles)
-    rotated_point_cloud = point_cloud_rotation(point, line_angle, mask, point_cloud, contours)
-    
-    # Run ICP
-    aligned, (tx, ty, theta), errors = robust_icp_2d(np.array(rotated_point_cloud), intersecting_objects)
-
     intersecting_objects = np.array(intersecting_objects)
+
+    OSM_line1, OSM_line2 = line_identificator(intersecting_objects, point)
+    if OSM_line1 is None:  # If no lines could be fitted
+        return 0, 0, point
+    
+    if OSM_line2 is not None:
+        OSM_line = np.append(OSM_line1, OSM_line2, axis=0)
+    else:
+        OSM_line = OSM_line1
+
+    rotated_point_cloud = point_cloud_rotation(point, line_angle, mask, point_cloud, contours)
     rotated_point_cloud = np.array(rotated_point_cloud)
 
+    if len(rotated_point_cloud) == 0:
+        return OSM_line, 0, point
+    
+    ZED_line1, ZED_line2 = line_identificator(rotated_point_cloud, point)
 
-    # Plot results
-    plt.figure(figsize=(10, 5))
-    plt.subplot(121)
-    plt.scatter(intersecting_objects[:,0], intersecting_objects[:,1], c='blue', label='OSM (target)')
-    plt.scatter(rotated_point_cloud[:,0], rotated_point_cloud[:,1], c='red', label='ZED (source)')
-    plt.title('Before ICP')
-    plt.legend()
+    if ZED_line1 is None: # If no lines could be fitted
+        return OSM_line, 0, point
+
+    if ZED_line2 is not None:
+        ZED_line = np.append(ZED_line1, ZED_line2, axis=0)
+        aligned, (R, t), errors= icp_2d(ZED_line, OSM_line)
+    else: 
+        ZED_line = ZED_line1
+        aligned, (R, t), errors= icp_2d(ZED_line1, OSM_line1)
+
+    # # Plot results for Debug
+    # plt.figure(figsize=(10, 5))
+    # plt.subplot(121)
+    # plt.scatter(ZED_line[:,0], ZED_line[:,1], c='red', label='ZED (target)')
+    # plt.scatter(OSM_line[:,0], OSM_line[:,1], c='blue', label='OSM (source)')
+    # plt.title('Before Alignment')
+    # plt.legend()
     
-    plt.subplot(122)
-    plt.scatter(intersecting_objects[:,0], intersecting_objects[:,1], c='blue', label='OSM (target)')
-    plt.scatter(aligned[:,0], aligned[:,1], c='green', label='ZED (aligned)')
-    plt.title('After ICP')
-    plt.legend()
+    # plt.subplot(122)
+    # plt.scatter(ZED_line[:,0], ZED_line[:,1], c='red', label='ZED (target)')
+    # plt.scatter(OSM_line[:,0], OSM_line[:,1], c='blue', label='OSM (source)')
+    # plt.scatter(aligned[:,0], aligned[:,1], c='green', label='OSM (aligned)')
+    # plt.title('After Alignment')
+    # plt.legend()
     
-    plt.figure()
-    plt.plot(errors)
-    plt.title('ICP Convergence')
-    plt.xlabel('Iteration')
-    plt.ylabel('Mean Error')
-    plt.show()
+    # plt.figure()
+    # plt.plot(errors)
+    # plt.title('ICP Convergence')
+    # plt.xlabel('Iteration')
+    # plt.ylabel('Mean Error')
+    # plt.show()
     
-    print(f"Final transformation: translation=({tx:.3f}, {ty:.3f}), rotation={theta:.3f} radians")
+    # print("Estimated rotation:\n", R) # Debug
+    # print("Estimated translation:", t)
     
-    return intersecting_objects, rotated_point_cloud
+
+    corr_point = np.array([point[0], point[1]])
+    corrected_point = (R @ corr_point.T).T + t
+
+    corrected_point = boundary_correction(corrected_point, building_area, crossing_area)
+
+    return OSM_line, ZED_line, corrected_point
