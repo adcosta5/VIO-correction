@@ -27,6 +27,7 @@ def main(seq):
     svo_input_path = opt.input_svo_file
     output_dir = opt.output_path_dir
     ground_truth = opt.ground_truth
+    use_orienternet = opt.use_orienternet
     plot = opt.plot
     show_FastSAM = opt.show_FastSAM
     correction_type = opt.correction_type
@@ -98,26 +99,27 @@ def main(seq):
             railway_area, green_area, min_lat, min_lon, max_lat, max_lon
         )
 
-        # Add straight line at angle = 0 (horizontal line going east)
-        # Create a straight line from the initial point extending eastward
-        line_length = 200  # Length of the line in meters
-        start_point = initial_point
-        end_point = (initial_point[0] + line_length, initial_point[1])  # Angle = 0 means going east (positive X direction)
+        # North - East reference lines
+        # # Add straight line at angle = 0 (horizontal line going east)
+        # # Create a straight line from the initial point extending eastward
+        # line_length = 200  # Length of the line in meters
+        # start_point = initial_point
+        # end_point = (initial_point[0] + line_length, initial_point[1])  # Angle = 0 means going east (positive X direction)
         
-        # Add the straight lines to the plotter
-        plotter.ax.plot([start_point[0], end_point[0]], [start_point[1], end_point[1]], 
-                       color='red', linewidth=2, linestyle='--', alpha=0.7, label='Reference Line - East (0°)')
-        initial_angle = 90
-        angle_rad = np.deg2rad(initial_angle)
-        end_point_angle = (
-            initial_point[0] + line_length * np.cos(angle_rad),
-            initial_point[1] + line_length * np.sin(angle_rad)
-        )
-        plotter.ax.plot([initial_point[0], end_point_angle[0]],
-                        [initial_point[1], end_point_angle[1]],
-                        color='blue', linewidth=2, linestyle='--', alpha=0.7, label=f'Reference Line - North (90°)')
+        # # Add the straight lines to the plotter
+        # plotter.ax.plot([start_point[0], end_point[0]], [start_point[1], end_point[1]], 
+        #                color='red', linewidth=2, linestyle='--', alpha=0.7, label='Reference Line - East (0°)')
+        # initial_angle = 90
+        # angle_rad = np.deg2rad(initial_angle)
+        # end_point_angle = (
+        #     initial_point[0] + line_length * np.cos(angle_rad),
+        #     initial_point[1] + line_length * np.sin(angle_rad)
+        # )
+        # plotter.ax.plot([initial_point[0], end_point_angle[0]],
+        #                 [initial_point[1], end_point_angle[1]],
+        #                 color='blue', linewidth=2, linestyle='--', alpha=0.7, label=f'Reference Line - North (90°)')
         
-        plotter.ax.legend()
+        # plotter.ax.legend()
 
         plt.pause(0.01)
         plotter.start_animation()
@@ -169,31 +171,33 @@ def main(seq):
                                    translation.get()[2])
 
                     # Obtain  the initial angle with OrienterNet
-                    # Convert image_np to orienternet format (RGB)
-                    image_ori = image_np[:,:,:3]
-                    image_ori = image_ori[:, :, [2, 1, 0]]
-                    uncorrected_angle = ori_pos_orienternet(image_ori, np.array(initial_point_latlon))
+                    if use_orienternet:
+                        # Convert image_np to orienternet format (RGB)
+                        image_ori = image_np[:,:,:3]
+                        image_ori = image_ori[:, :, [2, 1, 0]]
+                        uncorrected_angle = ori_pos_orienternet(image_ori, np.array(initial_point_latlon))
 
-                    initial_angle = 90 - uncorrected_angle
-                    print(f"The initial angle is: {initial_angle}")
-                    angle_rad = np.deg2rad(initial_angle)
+                        initial_angle = 90 - uncorrected_angle
+                        print(f"The initial angle is: {initial_angle}")
+                        angle_rad = np.deg2rad(initial_angle)
 
-                     # Add arrow for the initial orientation from OrienterNet
-                    if plot:
-                        arrow_length = 30  # Length of the arrow in meters
-                        arrow_end = (
-                            initial_point[0] + arrow_length * np.cos(angle_rad),
-                            initial_point[1] + arrow_length * np.sin(angle_rad)
-                        )
+                        # Add arrow for the initial orientation from OrienterNet
+                        if plot:
+                            arrow_length = 10  # Length of the arrow in meters
+                            arrow_end = (
+                                initial_point[0] + arrow_length * np.cos(angle_rad),
+                                initial_point[1] + arrow_length * np.sin(angle_rad)
+                            )
+                            
+                            plotter.ax.arrow(initial_point[0], initial_point[1], 
+                                            arrow_end[0] - initial_point[0], arrow_end[1] - initial_point[1],
+                                            head_width=5, head_length=7, fc='orange', ec='orange', 
+                                            width=1, label=f'OrienterNet Initial Angle ({initial_angle:.1f}°)')
+                            
+                            # Redraw legend to include the new arrow
+                            plotter.ax.legend()
+                            plt.pause(0.01)  # Update the plot
                         
-                        plotter.ax.arrow(initial_point[0], initial_point[1], 
-                                        arrow_end[0] - initial_point[0], arrow_end[1] - initial_point[1],
-                                        head_width=5, head_length=7, fc='green', ec='green', 
-                                        width=1, label=f'OrienterNet Initial Angle ({initial_angle:.1f}°)')
-                        
-                        # Redraw legend to include the new arrow
-                        plotter.ax.legend()
-                        plt.pause(0.01)  # Update the plot
 
                     R_matrix = rotation_matrix_z(angle_rad)
                     # R_matrix = quaternion_to_rotation_matrix((orientation.get()[0],orientation.get()[1],orientation.get()[2],orientation.get()[3]))
@@ -323,18 +327,20 @@ def main(seq):
 
 if __name__ == "__main__":
     
-    seq = "20"
+    seq = "15"
     input_svo_file = "../../datasets/BIEL/svofiles/IRI_" + seq + ".svo2"
     output_dir = "."
     ground_truth = True
+    use_orienternet = True 
     plot = True 
     show_FastSAM = False
-    correction_type = "point"
+    correction_type = "multipoint"
 
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
     parser.add_argument('--input_svo_file', type=str, default=input_svo_file, help='Path to the .svo file')
     parser.add_argument('--output_path_dir', type = str, default = output_dir, help = 'Path to a directory, where .png will be written, if mode includes image sequence export')
     parser.add_argument('--plot', type = bool, default = plot, help= "True for a plot with the trajectory")
+    parser.add_argument('--use_orienternet', type = bool, default = use_orienternet, help= "True for using OrienterNet for finding the inital angle")
     parser.add_argument('--ground_truth', type = bool, default = ground_truth, help= "True if there exists a ground truth for the sequence")
     parser.add_argument('--show_FastSAM', type = bool, default = show_FastSAM, help= "True to show FastSAM results")
     parser.add_argument('--correction_type', type = str, default = correction_type, help = "Select the type of correction: boundary, point, multipoint")

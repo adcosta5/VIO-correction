@@ -305,7 +305,7 @@ def icp_2d(source, target, max_iterations=500, tolerance=1e-8):
     - transformation: tuple (R, t), rotation matrix and translation vector
     - distances: list, mean distances at each iteration
     """
-    
+
     # Make copies to avoid modifying original arrays
     src = np.copy(source)
     dst = np.copy(target)
