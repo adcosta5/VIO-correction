@@ -313,7 +313,6 @@ def main(seq):
 
     return 0
 
-
 if __name__ == "__main__":
     
     seq = "20"
@@ -321,7 +320,7 @@ if __name__ == "__main__":
     output_dir = "."
     ground_truth = True
     plot = True 
-    show_FastSAM = False
+    show_FastSAM = True
     correction_type = "point"
 
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)
