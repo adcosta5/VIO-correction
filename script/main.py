@@ -73,7 +73,7 @@ def main(seq):
         max_lat, min_lat, max_lon, min_lon, zone_number, initial_point, initial_angle, initial_point_latlon = GT_reader(seq)
         
     else:
-        # Hardcode
+        # Hardcode for 00
         max_lat, min_lat, max_lon, min_lon = 426199.3624994039,425978.7850167572,4581793.943468097,4581560.487520885
         zone_number = 31
         initial_point = (426191.96, 4581761.48)
@@ -81,7 +81,7 @@ def main(seq):
         initial_point_latlon = (41.3839954, 2.1172553)
 
     zone = "+proj=utm +zone=" + str(zone_number) + " +ellps=WGS84 +datum=WGS84 +units=m +no_defs"
-    edges,road_area,walkable_area_gdf,building_area,crossings_area,railway_area,green_area = street_segmentation(initial_point_latlon,zone,area=750)
+    edges, road_area, walkable_area_gdf,building_area, crossings_area, railway_area, green_area = street_segmentation(initial_point_latlon,zone,area=750)
 
     merged_obstacles = merge_geoseries_obstacles(road_area, building_area, railway_area,green_area)
 
@@ -168,6 +168,7 @@ def main(seq):
                                    translation.get()[1] + initial_point[1],
                                    translation.get()[2])
 
+                    # Obtain  the initial angle with OrienterNet
                     # Convert image_np to orienternet format (RGB)
                     image_ori = image_np[:,:,:3]
                     image_ori = image_ori[:, :, [2, 1, 0]]
@@ -194,7 +195,6 @@ def main(seq):
                         plotter.ax.legend()
                         plt.pause(0.01)  # Update the plot
 
-                    #angle_rad = 0
                     R_matrix = rotation_matrix_z(angle_rad)
                     # R_matrix = quaternion_to_rotation_matrix((orientation.get()[0],orientation.get()[1],orientation.get()[2],orientation.get()[3]))
                     transf_matrix = create_transformation_matrix(first_point,R_matrix)
@@ -272,14 +272,22 @@ def main(seq):
                                 plt.pause(0.001) # Short pause to allow GUI updates
 
                 elif correction_type == "multipoint":
-                    # if svo_position > 50 and (svo_position % 5 == 0):
-                    if svo_position == 1000:
-                        intersecting_objects, rotated_point_cloud = multipoint_correction(corrected_odom, view_dist, merged_obstacles, building_area, crossings_area, fov_box, line_angle, mask, point_cloud, contours)
+                    print(f"SVO_POSITION: {svo_position}")
+                    if svo_position > 50 and (svo_position % 5 == 0):
+                    # if svo_position == 1270: 
+                        intersecting_objects, rotated_point_cloud, corrected_point = multipoint_correction(corrected_odom, view_dist, merged_obstacles, building_area, crossings_area, fov_box, line_angle, mask, point_cloud, contours)
+                        print(f"Estimated Point: {estimated_odom}")
+                        print(f"Corrected Point (multipoint): {corrected_point}")
+
+                        corrected_transf_matrix[0,3] = corrected_point[0]
+                        corrected_transf_matrix[1,3] = corrected_point[1]
 
                         if plot:
+                            point_added = plotter.add_est_point(transf_matrix[0,3], transf_matrix[1,3])
+                            corrected_point_added = plotter.add_corr_point(corrected_transf_matrix[0,3], corrected_transf_matrix[1,3])
 
-                            if hasattr(fov_box, 'exterior'):  # Ensure it's a valid Polygon
-                                    plotter.add_temporary_elements(fov_box, intersecting_objects, rotated_point_cloud)
+                            # if hasattr(fov_box, 'exterior'):  # Ensure it's a valid Polygon
+                            #         plotter.add_temporary_elements(fov_box, intersecting_objects, 0)
 
                             if svo_position % 5 == 0:
                                 plt.pause(0.001)
@@ -320,7 +328,7 @@ if __name__ == "__main__":
     output_dir = "."
     ground_truth = True
     plot = True 
-    show_FastSAM = True
+    show_FastSAM = False
     correction_type = "point"
 
     parser = argparse.ArgumentParser(formatter_class=argparse.RawTextHelpFormatter)

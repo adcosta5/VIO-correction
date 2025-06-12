@@ -25,7 +25,7 @@ class RealTimePlotter:
         self.is_running = False
 
         # Downsampler Factor
-        self.downsample_factor = 5  # Plot every 5th point
+        self.downsample_factor = 1  # Plot every 5th point
         self.counter = 0
 
         # Add temporary plot elements
@@ -106,7 +106,7 @@ class RealTimePlotter:
             self.ax.add_patch(self.fov_patch)
         
         # Update intersection points
-        if intersections:
+        if intersections.any():
             ix, iy = zip(*[(p[0], p[1]) for p in intersections])
             self.intersection_points, = self.ax.plot(
                 ix, iy, 'ro', markersize=3, alpha=0.7, 
