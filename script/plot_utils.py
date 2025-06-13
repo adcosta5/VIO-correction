@@ -106,7 +106,7 @@ class RealTimePlotter:
             self.ax.add_patch(self.fov_patch)
         
         # Update intersection points
-        if intersections.any():
+        if np.array(intersections).any():
             ix, iy = zip(*[(p[0], p[1]) for p in intersections])
             self.intersection_points, = self.ax.plot(
                 ix, iy, 'ro', markersize=3, alpha=0.7, 

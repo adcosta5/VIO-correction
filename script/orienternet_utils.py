@@ -37,13 +37,13 @@ def ori_pos_orienternet(image, prior_latlon):
     # The highest accuracy is achieved with num_rotations=360
     # but num_rotations=64~128 is often sufficient.
     # To reduce the memory usage, we can reduce the tile size in the next cell.
-    demo = Demo(num_rotations=256, device="cuda")
+    demo = Demo(num_rotations=128, device="cuda")
 
     image, camera, gravity, proj, bbox = demo.read_input_numpy_image( # Auto extracts camera calibration parameters
     image,
     prior_latlon=prior_latlon,
     focal_length=706.391, # Hardcoded
-    tile_size_meters=64)  # The smaller the better (if the prior address is good)
+    tile_size_meters=32)  # The smaller the better (if the prior address is good)
     
     # Query OpenStreetMap for this area
     tiler = TileManager.from_bbox(proj, bbox + 10, demo.config.data.pixel_per_meter)
@@ -58,22 +58,22 @@ def ori_pos_orienternet(image, prior_latlon):
 
     # Convert prior_latlon to canvas coordinate system
     xy_prior = np.array(canvas.to_uv(proj.project(proj.latlonalt[:2]))) 
-    print("Initial", xy_prior)
+    #print("Initial", xy_prior)
  
     # positions is a tuple of (y_array, x_array)
     positions = np.stack(positions, axis=1)  # shape (N, 2)
-    print("Positions:", positions)
+    #print("Positions:", positions)
 
     # Find closest position to origin (0, 0)
     distances = np.linalg.norm(positions - xy_prior, axis=1)
     closest_idx = np.argmin(distances)
-    print("Distances:", distances)
-    print("Closest index:", closest_idx)
+    #print("Distances:", distances)
+    #print("Closest index:", closest_idx)
 
     # Get the best orientation
     angle = orientations[closest_idx]
-    print("Selected angle:", angle)
-    print("All orientations:", orientations)
+    #print("Selected angle:", angle)
+    #print("All orientations:", orientations)
 
     return angle
 
