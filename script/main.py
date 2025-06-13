@@ -229,7 +229,7 @@ def main(seq):
                     print(f"SVO_POSITION: {svo_position}")
                     if svo_position > 50 and (svo_position % 5 == 0):
                     # if svo_position == 1270: 
-                        intersecting_objects, rotated_point_cloud, corrected_point = multipoint_correction(corrected_odom, view_dist, merged_obstacles, building_area, crossings_area, fov_box, line_angle, mask, point_cloud, contours)
+                        intersecting_objects, rotated_point_cloud, corrected_point = multipoint_correction(corrected_odom, view_dist, merged_obstacles, crossings_area, fov_box, line_angle, mask, point_cloud, contours)
                         print(f"Estimated Point: {estimated_odom}")
                         print(f"Corrected Point (multipoint): {corrected_point}")
 

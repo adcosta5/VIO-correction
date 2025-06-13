@@ -369,7 +369,7 @@ def icp_2d(source, target, max_iterations=500, tolerance=1e-8):
     
     return aligned_source, transformation, distances
 
-def multipoint_correction(point, max_distance, obstacles_geometry, building_area, crossing_area, fov_box, line_angle, mask, point_cloud, contours, angles=list(range(-90, 90, 5))):
+def multipoint_correction(point, max_distance, obstacles_geometry, crossing_area, fov_box, line_angle, mask, point_cloud, contours, angles=list(range(-90, 90, 5))):
 
     intersecting_objects = cartographic_point_extractor(point, max_distance, obstacles_geometry, fov_box, line_angle, angles)
     intersecting_objects = np.array(intersecting_objects)
@@ -430,6 +430,6 @@ def multipoint_correction(point, max_distance, obstacles_geometry, building_area
     corr_point = np.array([point[0], point[1]])
     corrected_point = (R @ corr_point.T).T + t
 
-    corrected_point = boundary_correction(corrected_point, building_area, crossing_area)
+    corrected_point = boundary_correction(corrected_point, obstacles_geometry, crossing_area)
 
     return OSM_line, ZED_line, corrected_point
