@@ -13,6 +13,7 @@ import matplotlib.pyplot as plt
 from fastSAM_utils import FastSAMutils
 
 
+
 def merge_geoseries_obstacles(*geoseries_list):
     """Merge multiple GeoSeries into a single obstacles collection"""
     all_geometries = []
@@ -161,11 +162,11 @@ def point_correction(point, max_distance, obstacles_geometry, building_area, cro
 
         else:
             correction = 0
-
+        
     else: correction = 0
 
     if abs(correction) > 1.5:
-        # correction = 1.5 * np.sign(correction)
+        #correction = 1.5 * np.sign(correction)
         return intersecting_objects, point
     else: correction = correction
 
@@ -208,7 +209,6 @@ def point_cloud_rotation(real_point, line_angle, mask, point_cloud, contours):
             rotated_point_cloud.append(transformed_point)
 
     return rotated_point_cloud
-
 
 def line_identificator(point_cloud, point, dist=10, n_samples=50):
     if point_cloud.ndim == 1:
@@ -306,7 +306,6 @@ def icp_2d(source, target, max_iterations=500, tolerance=1e-8):
     - transformation: tuple (R, t), rotation matrix and translation vector
     - distances: list, mean distances at each iteration
     """
-    
     # Make copies to avoid modifying original arrays
     src = np.copy(source)
     dst = np.copy(target)

@@ -32,7 +32,7 @@ def GT_reader(seq):
     Returns:
     tuple: containing max_lat, min_lat, max_lon, min_lon, zone_number, initial_point, and intital angle
     """    
-    file_path = "./datasets/IRI_sequences_GT.txt"   
+    file_path = "../../datasets/BIEL/IRI_sequences_GT.txt"   
      # Read and parse the file
     with open(file_path, 'r', encoding='utf-8-sig') as file:
         content = file.read()    
@@ -242,3 +242,4 @@ def create_transformation_matrix(translation, rotation_matrix):
     transformation[:3, :3] = rotation_matrix
     transformation[:3, 3] = translation
     return transformation
+

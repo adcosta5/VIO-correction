@@ -16,6 +16,8 @@ from plot_utils import RealTimePlotter
 from fastSAM_utils import FastSAMutils
 from correction_utils import boundary_correction, point_correction, multipoint_correction, merge_geoseries_obstacles
 from utils import GT_reader, street_segmentation, quaternion_to_rotation_matrix, create_transformation_matrix, rotation_matrix_z
+import sys
+from orienternet_utils import ori_pos_orienternet
 
 def main(seq):
     # Initialize FastSAM
@@ -25,6 +27,7 @@ def main(seq):
     svo_input_path = opt.input_svo_file
     output_dir = opt.output_path_dir
     ground_truth = opt.ground_truth
+    use_orienternet = opt.use_orienternet
     plot = opt.plot
     show_FastSAM = opt.show_FastSAM
     correction_type = opt.correction_type
@@ -71,6 +74,7 @@ def main(seq):
         max_lat, min_lat, max_lon, min_lon, zone_number, initial_point, initial_angle, initial_point_latlon = GT_reader(seq)
         
     else:
+        # Hardcode for 00
         max_lat, min_lat, max_lon, min_lon = 426199.3624994039,425978.7850167572,4581793.943468097,4581560.487520885
         zone_number = 31
         initial_point = (426191.96, 4581761.48)
@@ -78,16 +82,15 @@ def main(seq):
         initial_point_latlon = (41.3839954, 2.1172553)
 
     zone = "+proj=utm +zone=" + str(zone_number) + " +ellps=WGS84 +datum=WGS84 +units=m +no_defs"
-    edges,road_area,walkable_area_gdf,building_area,crossings_area,railway_area,green_area = street_segmentation(initial_point_latlon,zone,area=750)
+    edges, road_area, walkable_area_gdf,building_area, crossings_area, railway_area, green_area = street_segmentation(initial_point_latlon,zone,area=750)
 
     merged_obstacles = merge_geoseries_obstacles(road_area, building_area, railway_area,green_area)
 
-    #Define fov_box parameters for the point and multipoint correction
+    # Define fov_box parameters for the point and multipoint correction
     view_dist = 20 # 20 meters viewing distance
 
     # Define the box corners relative to the point
     box_corners = np.array([[-0.5, -10.0], [-0.5, 10.0], [11.5, 10], [11.5, -10.0]]) # Box 20 by 20m 
-
 
     if plot:
         # Initialize real-time plotter
@@ -95,6 +98,28 @@ def main(seq):
             edges, road_area, building_area, crossings_area, 
             railway_area, green_area, min_lat, min_lon, max_lat, max_lon
         )
+
+        # North - East reference lines
+        # # Add straight line at angle = 0 (horizontal line going east)
+        # # Create a straight line from the initial point extending eastward
+        # line_length = 200  # Length of the line in meters
+        # start_point = initial_point
+        # end_point = (initial_point[0] + line_length, initial_point[1])  # Angle = 0 means going east (positive X direction)
+        
+        # # Add the straight lines to the plotter
+        # plotter.ax.plot([start_point[0], end_point[0]], [start_point[1], end_point[1]], 
+        #                color='red', linewidth=2, linestyle='--', alpha=0.7, label='Reference Line - East (0°)')
+        # initial_angle = 90
+        # angle_rad = np.deg2rad(initial_angle)
+        # end_point_angle = (
+        #     initial_point[0] + line_length * np.cos(angle_rad),
+        #     initial_point[1] + line_length * np.sin(angle_rad)
+        # )
+        # plotter.ax.plot([initial_point[0], end_point_angle[0]],
+        #                 [initial_point[1], end_point_angle[1]],
+        #                 color='blue', linewidth=2, linestyle='--', alpha=0.7, label=f'Reference Line - North (90°)')
+        
+        # plotter.ax.legend()
 
         plt.pause(0.01)
         plotter.start_animation()
@@ -144,10 +169,36 @@ def main(seq):
                     first_point = (translation.get()[0] + initial_point[0],
                                    translation.get()[1] + initial_point[1],
                                    translation.get()[2])
-                    
-                    initial_angle = 100
-                    angle_rad = np.deg2rad(initial_angle)
-                    # angle_rad = 0
+
+                    # Obtain  the initial angle with OrienterNet
+                    if use_orienternet:
+                        # Convert image_np to orienternet format (RGB)
+                        image_ori = image_np[:,:,:3]
+                        image_ori = image_ori[:, :, [2, 1, 0]]
+                        uncorrected_angle = ori_pos_orienternet(image_ori, np.array(initial_point_latlon))
+
+                        initial_angle = 90 - uncorrected_angle
+                        print(f"The initial angle is: {initial_angle}")
+                        angle_rad = np.deg2rad(initial_angle)
+
+                        # Add arrow for the initial orientation from OrienterNet
+                        if plot:
+                            arrow_length = 10  # Length of the arrow in meters
+                            arrow_end = (
+                                initial_point[0] + arrow_length * np.cos(angle_rad),
+                                initial_point[1] + arrow_length * np.sin(angle_rad)
+                            )
+                            
+                            plotter.ax.arrow(initial_point[0], initial_point[1], 
+                                            arrow_end[0] - initial_point[0], arrow_end[1] - initial_point[1],
+                                            head_width=5, head_length=7, fc='orange', ec='orange', 
+                                            width=1, label=f'OrienterNet Initial Angle ({initial_angle:.1f}°)')
+                            
+                            # Redraw legend to include the new arrow
+                            plotter.ax.legend()
+                            plt.pause(0.01)  # Update the plot
+                        
+
                     R_matrix = rotation_matrix_z(angle_rad)
                     # R_matrix = quaternion_to_rotation_matrix((orientation.get()[0],orientation.get()[1],orientation.get()[2],orientation.get()[3]))
                     transf_matrix = create_transformation_matrix(first_point,R_matrix)
@@ -275,14 +326,14 @@ def main(seq):
 
     return 0
 
-
 if __name__ == "__main__":
     
-    seq = "00"
-    input_svo_file = "./datasets/IRI_" + seq + ".svo2"
+    seq = "15"
+    input_svo_file = "../../datasets/BIEL/svofiles/IRI_" + seq + ".svo2"
     output_dir = "."
     ground_truth = True
-    plot = True
+    use_orienternet = True 
+    plot = True 
     show_FastSAM = False
     correction_type = "multipoint"
 
@@ -290,6 +341,7 @@ if __name__ == "__main__":
     parser.add_argument('--input_svo_file', type=str, default=input_svo_file, help='Path to the .svo file')
     parser.add_argument('--output_path_dir', type = str, default = output_dir, help = 'Path to a directory, where .png will be written, if mode includes image sequence export')
     parser.add_argument('--plot', type = bool, default = plot, help= "True for a plot with the trajectory")
+    parser.add_argument('--use_orienternet', type = bool, default = use_orienternet, help= "True for using OrienterNet for finding the inital angle")
     parser.add_argument('--ground_truth', type = bool, default = ground_truth, help= "True if there exists a ground truth for the sequence")
     parser.add_argument('--show_FastSAM', type = bool, default = show_FastSAM, help= "True to show FastSAM results")
     parser.add_argument('--correction_type', type = str, default = correction_type, help = "Select the type of correction: boundary, point, multipoint")
